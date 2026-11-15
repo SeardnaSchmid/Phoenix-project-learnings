@@ -290,13 +290,52 @@ function crateColor(G, c) {
   return PAL.crate[c.type];
 }
 
+// Work-type symbols: shape-coding in addition to colour.
+// briefcase = business project, gear = internal IT, cycle arrow = change, ! = unplanned
+const TYPE_SVG = {
+  biz: '<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M9 8V5h6v3M3 13h18"/>',
+  int: '<circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5M5.3 5.3l2.5 2.5M16.2 16.2l2.5 2.5M5.3 18.7l2.5-2.5M16.2 7.8l2.5-2.5"/>',
+  chg: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/>',
+  unp: '<path d="M12 4v10"/><circle cx="12" cy="19" r="1.2" fill="currentColor"/>',
+};
+function typeIcon(t, cls = '') {
+  return `<span class="ticon ${t} ${cls}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${TYPE_SVG[t]}</svg></span>`;
+}
+function crateGlyph(type, sx, sy, col) {
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.strokeStyle = ctx.fillStyle = col;
+  ctx.lineWidth = 1.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (type === 'biz') {
+    ctx.rect(-3.6, -1.8, 7.2, 5); ctx.moveTo(-1.6, -1.8); ctx.lineTo(-1.6, -3.4); ctx.lineTo(1.6, -3.4); ctx.lineTo(1.6, -1.8);
+    ctx.stroke();
+  } else if (type === 'int') {
+    ctx.arc(0, 0, 1.9, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath();
+    for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; ctx.moveTo(Math.cos(a) * 2.4, Math.sin(a) * 2.4); ctx.lineTo(Math.cos(a) * 3.8, Math.sin(a) * 3.8); }
+    ctx.stroke();
+  } else if (type === 'chg') {
+    ctx.arc(0, 0, 3, -.2 * Math.PI, 1.55 * Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(2.9, -3.9); ctx.lineTo(2.6, -.8); ctx.lineTo(-.3, -1.6); ctx.stroke();
+  } else if (type === 'unp') {
+    ctx.moveTo(0, -3.6); ctx.lineTo(0, 1); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 3.2, .9, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawCrate(G, c, T) {
   const col = crateColor(G, c);
   if (c.state === 'fall') shadowEll(c.x + .15, c.y + .15, BELT_Z, .35, Math.max(.2, 1 - c.z / 7));
   box(c.x, c.y, c.z, .3, .3, .3, col, true);
   ctx.strokeStyle = mix(col, '#000000', .22); ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(...P(c.x + .15, c.y, c.z + .3)); ctx.lineTo(...P(c.x + .15, c.y + .3, c.z + .3)); ctx.stroke();
-  if (!c.classified) {
+  if (c.classified) {
+    // sticker on the front edge of the crate
+    const [gx, gy] = P(c.x + .3, c.y + .3, c.z + .16);
+    crateGlyph(c.type, gx, gy, mix(col, '#000000', .62));
+  } else {
     const [sx, sy] = P(c.x + .15, c.y + .15, c.z + .3);
     ctx.fillStyle = PAL.text; ctx.font = '800 11px Inter, system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';

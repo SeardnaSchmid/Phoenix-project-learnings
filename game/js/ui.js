@@ -542,7 +542,7 @@ function renderBoard() {
     b.innerHTML = '<h3>Kanban board</h3><p style="margin:0;color:var(--muted)">There is no board yet. Buy the Kanban board in the toolbox to see all work in one place.</p>';
     return;
   }
-  const chip = c => `<span class="chipc ${c.type}${c.shadow ? ' hidden-work' : ''}"></span>`;
+  const chip = c => typeIcon(c.type, 'chipc' + (c.shadow ? ' hidden-work' : ''));
   const chips = list => list.slice(0, 40).map(chip).join('') + (list.length > 40 ? `<span class="more">+${list.length - 40}</span>` : '');
   const cols = [{ name: 'Backlog', list: G.backlog, s: null }];
   for (let i = 1; i <= 4; i++) cols.push({ name: G.st[i].name, list: G.crates.filter(c => c.loc === i), s: G.st[i] });
@@ -555,8 +555,8 @@ function renderBoard() {
     if (col.s && G.owned.wipLimits) html += `<div class="limit-ctl">limit <button data-bl="${col.s.i}" data-d="-1">−</button><b>${col.s.limit ?? '∞'}</b><button data-bl="${col.s.i}" data-d="1">+</button></div>`;
     html += '</div>';
   }
-  html += `<div class="col"><div class="col-h"><span>Done today</span><span class="cnt">${done.length}</span></div><div class="chips">${done.slice(-40).map(d => `<span class="chipc ${d.type}"></span>`).join('')}</div></div>`;
-  html += '</div><div class="legend">' + Object.keys(TYPE_INFO).map(t => `<span><span class="chipc ${t}"></span>${TYPE_INFO[t].name}</span>`).join('') + (G.L.shadowRate ? '<span><span class="chipc biz hidden-work"></span>Hallway request</span>' : '') + '</div>';
+  html += `<div class="col"><div class="col-h"><span>Done today</span><span class="cnt">${done.length}</span></div><div class="chips">${done.slice(-40).map(d => typeIcon(d.type, 'chipc')).join('')}</div></div>`;
+  html += '</div><div class="legend">' + Object.keys(TYPE_INFO).map(t => `<span>${typeIcon(t, 'chipc')}${TYPE_INFO[t].name}</span>`).join('') + (G.L.shadowRate ? `<span>${typeIcon('biz', 'chipc hidden-work')}Hallway request</span>` : '') + '</div>';
   b.innerHTML = html;
   b.querySelectorAll('[data-bl]').forEach(btn => btn.onclick = () => { changeLimit(G.st[Number(btn.dataset.bl)], Number(btn.dataset.d)); renderBoard(); });
 }
@@ -616,7 +616,7 @@ function showClassify(item, idx) {
     <div class="eyebrow">Request ${idx + 1} of ${G.L.items.length}</div>
     <h2>What type of work is this?</h2>
     <div class="quote">"${esc(item.text)}"</div>
-    <div class="types">${Object.keys(TYPE_INFO).map(t => `<button class="opt" data-t="${t}"><span class="sw" style="background:var(--${t})"></span><span><b>${TYPE_INFO[t].name}</b><small>${TYPE_INFO[t].desc}</small></span></button>`).join('')}</div>
+    <div class="types">${Object.keys(TYPE_INFO).map(t => `<button class="opt" data-t="${t}">${typeIcon(t, 'sw')}<span><b>${TYPE_INFO[t].name}</b><small>${TYPE_INFO[t].desc}</small></span></button>`).join('')}</div>
     <div id="fb"></div>`);
   card.querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
     const type = b.dataset.t, ok = tutorialAnswer(G, type);

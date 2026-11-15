@@ -608,7 +608,7 @@ const LEVELS = [
 ];
 
 // Guided tour for shift 0. `rect` is a world-space floor area to highlight, `at` anchors the card.
-const chip = t => `<span class="tchip" style="background:var(--${t})"></span>`;
+const chip = t => typeIcon(t, 'tchip');
 const TOUR = [
   { title: 'Your value stream', rect: [.5, 4.1, 21.3, 4.9], at: [11, 4.5, 0],
     text: 'This conveyor belt is your pipeline. Every crate is one piece of work. It travels from left to right: from a request at <b>Demand</b> to a happy <b>Customer</b>. Work only creates value once it arrives on the right.' },

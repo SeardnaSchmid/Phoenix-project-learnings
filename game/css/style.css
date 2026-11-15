@@ -50,7 +50,7 @@ body {
 button { font-family: inherit; color: inherit; }
 .hidden { display: none !important; }
 #scene { position: fixed; inset: 0; transition: filter .5s; }
-body.title-mode #scene { filter: blur(1.4px) saturate(.92); }
+body.title-mode #scene { filter: blur(2px) saturate(.92); }
 /* sharp copy of the title-screen factory, revealed around the cursor */
 #sceneSharp { position: fixed; inset: 0; pointer-events: none; display: none; --mx: -999px; --my: -999px;
   -webkit-mask-image: radial-gradient(circle 280px at var(--mx) var(--my), #000 50%, transparent 100%);
@@ -414,3 +414,13 @@ h3 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase; letter-spacin
 .tour-actions .btn { padding: 8px 14px; font-size: 13px; }
 body.tour-hud .kpi, body.tour-hud #patBlock, body.tour-hud .left-col > .panel, body.tour-hud .right-col > .panel, body.tour-hud .tb-meter {
   box-shadow: 0 0 0 2px var(--accent), 0 0 24px color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 14px; }
+
+/* work-type icons (colour + shape) */
+.ticon { display: inline-grid; place-items: center; border-radius: 4px; flex: none; color: rgba(10, 14, 30, .78); vertical-align: middle; }
+.ticon.biz { background: var(--biz); } .ticon.int { background: var(--int); } .ticon.chg { background: var(--chg); } .ticon.unp { background: var(--unp); }
+.ticon svg { width: 78%; height: 78%; }
+.ticon.chipc { width: 16px; height: 16px; }
+.ticon.sw { width: 22px; height: 22px; border-radius: 6px; margin-top: 0; }
+.ticon.tchip { width: 16px; height: 16px; margin-right: 4px; vertical-align: -3px; }
+.chips { gap: 4px; }
+.legend .ticon { display: inline-grid; }
