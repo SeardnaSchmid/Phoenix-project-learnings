@@ -602,7 +602,7 @@ function openStation(i) {
   const G = UI.G;
   // in the fog, the only way to know what happens at a station is to walk over and ask
   if (G.L.fog && i > 0 && G.kanbanT == null && !G.ended) {
-    G.peek[i] = { t0: G.t, until: G.t + 1.4 };
+    G.peek[i] = { t0: G.t, until: G.t + 1.4 / G.k };
     G.peeked.add(i);
   }
   UI.selected = i;
@@ -630,7 +630,7 @@ function updateStationPanel(rebuild) {
     html += `<div class="sp-row"><span>Items in progress here</span><b>${here.length}</b></div>`;
     html += `<div class="sp-row"><span>…of those, hallway requests</span><b>${hall}</b></div>`;
     html += `<div class="sp-row"><span>Fires being fought</span><b>${fires}</b></div>`;
-    html += `<div class="peek-bar"><i style="width:${clamp(left / 1.4, 0, 1) * 100}%"></i></div><p class="sp-note small">Knowledge goes stale. When you look away, the fog comes back.</p>`;
+    html += `<div class="peek-bar"><i style="width:${clamp(left * G.k / 1.4, 0, 1) * 100}%"></i></div><p class="sp-note small">Knowledge goes stale. When you look away, the fog comes back.</p>`;
   } else if (fog) {
     html += `<p class="sp-note">Nobody knows what's going on here anymore. Work arrives through hallways and chats, and there's no board.</p>
       <button class="btn small" data-ask>Ask around again</button>`;
@@ -674,8 +674,10 @@ function updateStationPanel(rebuild) {
 function changeLimit(s, d) {
   const cur = s.limit ?? 0;
   let v = cur + d;
-  if (s.limit == null) v = d < 0 ? Math.max(1, stationCount(UI.G, s.i) - 1) : 2 * s.workers.length;
-  s.limit = v <= 0 ? null : Math.min(30, v);
+  const V = UI.G.v, step = V > 1 ? Math.round(V) : 1;
+  if (s.limit == null) v = d < 0 ? Math.max(1, stationCount(UI.G, s.i) - 1) : 2 * s.workers.length * V;
+  else v = cur + d * step;
+  s.limit = v <= 0 ? null : Math.min(30 * V, v);
   const f = FEEDBACK.limits;
   logDecision(UI.G, { key: 'limits', kind: 'tool', merge: 'limit-' + s.i, label: `WIP limit · ${s.name} → ${s.limit ?? '∞'}`,
     trap: false, why: f.works, expect: s.limit == null ? {} : f.expect, delay: f.delay, station: s.i });
@@ -722,7 +724,7 @@ function renderBoard() {
   const chips = list => list.slice(0, 40).map(chip).join('') + (list.length > 40 ? `<span class="more">+${list.length - 40}</span>` : '');
   const cols = [{ name: 'Backlog', list: G.backlog, s: null }];
   for (let i = 1; i <= 4; i++) cols.push({ name: G.st[i].name, list: G.crates.filter(c => c.loc === i), s: G.st[i] });
-  const done = G.stats.delivered.filter(d => d.t > G.t - 1);
+  const done = G.stats.delivered.filter(d => d.t > G.t - G.k);
   let html = '<div class="board-cols">';
   for (const col of cols) {
     const n = col.s ? stationCount(G, col.s.i) : col.list.length;

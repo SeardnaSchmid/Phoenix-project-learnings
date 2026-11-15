@@ -15,6 +15,11 @@ const VERDICT = {
 // How much a KPI must move to count as a real change.
 const KPI_SCALE = { lead: .5, thr: .3, wip: 3, unp: 6, debt: 4, cfr: 4, deploys: .4, mttr: .15, patience: 5 };
 const PATIENCE_META = { label: 'Business patience', unit: '', fmt: v => String(Math.round(v)), color: 'chg' };
+// Count-like KPIs grow with the shift's volume, so "a real change" grows with it.
+function kpiScale(G, k) {
+  const g = G || UI.G;
+  return (KPI_SCALE[k] ?? 1) * (g && ['wip', 'thr', 'deploys'].includes(k) ? g.v || 1 : 1);
+}
 function kmeta(k) { return k === 'patience' ? PATIENCE_META : KPI_META[k]; }
 
 // KPI levels averaged over the last day, so a single noisy sample can't decide a verdict.
@@ -22,7 +27,7 @@ function snapshot(G) {
   const now = Object.assign({ patience: G.patience }, computeKpis(G)), out = {};
   for (const k of Object.keys(now)) {
     const s = G.series[k] || [], vals = [];
-    for (let i = s.length - 1; i >= 0 && G.t - G.seriesT[i] <= 1; i--) if (s[i] != null) vals.push(s[i]);
+    for (let i = s.length - 1; i >= 0 && G.t - G.seriesT[i] <= G.k; i--) if (s[i] != null) vals.push(s[i]);
     if (now[k] != null) vals.push(now[k]);
     out[k] = vals.length ? avg(vals) : null;
   }
@@ -52,7 +57,7 @@ function logDecision(G, d) {
   G.decisions.push(dec);
   if (dec.station != null) G.pulses.push({ i: dec.station, t0: G.t });
   if (dec.fixed) { dec.verdict = dec.measured = dec.fixed; dec.checkedAt = G.t; }
-  else if (Object.keys(dec.expect).length) G.schedule.push({ at: G.t + dec.delay, fn: g => checkDecision(g, dec) });
+  else if (Object.keys(dec.expect).length) G.schedule.push({ at: G.t + dec.delay * G.k, fn: g => checkDecision(g, dec) });
   else { dec.verdict = dec.measured = 'info'; dec.checkedAt = G.t; }
   if (dec.trap && dec.verdict) dec.verdict = 'trap';
   dec.id = G.decisions.length;
@@ -66,7 +71,7 @@ function measure(dec, after) {
     const b = dec.before[k], a = after[k];
     if (a == null || b == null) continue;
     const delta = a - b;
-    const res = Math.abs(delta) < (KPI_SCALE[k] ?? 1) ? 0 : Math.sign(delta) === dir ? 1 : -1;
+    const res = Math.abs(delta) < kpiScale(null, k) ? 0 : Math.sign(delta) === dir ? 1 : -1;
     score += res;
     lines.push({ k, b, a, dir, res });
   }
@@ -238,7 +243,7 @@ function patienceTrend(G) {
   if (!s || s.length < 3) return 0;
   const n = s.length - 1;
   let j = n;
-  while (j > 0 && ts[n] - ts[j] < 1) j--;
+  while (j > 0 && ts[n] - ts[j] < G.k) j--;
   const dt = ts[n] - ts[j];
   return dt > 0 ? (s[n] - s[j]) / dt : 0;
 }
@@ -251,12 +256,12 @@ function updatePatience(G) {
   const block = $('#patBlock');
   block.classList.toggle('low', p <= 25);
   const slope = patienceTrend(G), left = L.days - G.t, sub = $('#patSub');
-  if (slope < -.8) {
+  if (slope * G.k < -.8) {
     const runout = p / -slope;
     const danger = runout < left;
     sub.className = 'pat-sub ' + (danger ? 'danger' : 'warn');
     sub.textContent = `▼ ${(-slope).toFixed(1)}/day · empty in ~${runout.toFixed(1)} days${danger ? ' (before the shift ends!)' : ''}`;
-  } else if (slope > .8) {
+  } else if (slope * G.k > .8) {
     sub.className = 'pat-sub good';
     sub.textContent = `▲ +${slope.toFixed(1)}/day · business is happy`;
   } else {
@@ -353,7 +358,7 @@ function debriefCompareHtml(G, H) {
 function debriefDecisionsHtml(G) {
   for (const d of G.decisions) if (!d.verdict) {
     checkDecision(G, d, true);
-    if (G.t - d.t < d.delay * .6) { d.verdict = d.measured = 'early'; d.lag = 'The shift ended before its effect could show.'; }
+    if (G.t - d.t < d.delay * G.k * .6) { d.verdict = d.measured = 'early'; d.lag = 'The shift ended before its effect could show.'; }
   }
   const list = G.decisions;
   const rows = list.map(d => {
@@ -386,7 +391,7 @@ function scoreRows(G, H, res) {
     let cmp = null;
     if (H && you != null && gh != null) {
       const d = (you - gh) * KPI_DIR[k];
-      cmp = Math.abs(you - gh) < (KPI_SCALE[k] ?? 1) ? 0 : d > 0 ? 1 : -1;
+      cmp = Math.abs(you - gh) < kpiScale(G, k) ? 0 : d > 0 ? 1 : -1;
     }
     rows.push({ label: m.label, unit: m.unit, you: you == null ? '–' : m.fmt(you), gh: gh == null ? '–' : m.fmt(gh), cmp,
       goal: gi >= 0 ? { met: res[gi].met, text: (G.L.goals[gi].op === '<=' ? '≤ ' : '≥ ') + m.fmt(G.L.goals[gi].val) } : null });

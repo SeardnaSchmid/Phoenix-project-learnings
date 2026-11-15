@@ -7,7 +7,7 @@ function viewRect() {
 }
 
 function step(G, dtReal) {
-  let d = dtReal / DAY_SEC;
+  let d = dtReal / daySec(G);
   while (d > 0) { const s = Math.min(d, .01); update(G, s); d -= s; }
 }
 

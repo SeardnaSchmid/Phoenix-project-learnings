@@ -2,6 +2,11 @@
 // Factory simulation. All times are in-game days.
 
 const DAY_SEC = 8;
+// Some shifts run more, shorter days (tScale k): a day lasts DAY_SEC / k seconds. Visual timers,
+// patience and KPI windows scale with k, so the shift feels the same but has k× more flow to measure.
+function daySec(G) { return DAY_SEC / (G.k || 1); }
+// Volume (vScale v): v× more items, each done v× faster. Lead times stay, piles and throughput grow v×.
+// Per-item effects (patience, budget, crowding) are divided by v so the totals stay comparable.
 const BELT_Y = 4.35, BELT_Z = .2, BELT_SPEED = 30, LAYERS = 4;
 const STATION_X = [1.6, 5.5, 9.5, 13.5, 17.5];
 const CUST_X = 21.0;
@@ -70,7 +75,7 @@ function newGame(L, opts = {}) {
 }
 function buildGame(L, opts, seed, rng) {
   const G = {
-    L, t: 0, speed: 1, ended: null, demo: !!opts.demo, ghost: !!opts.ghost, seed, rng,
+    L, t: 0, k: L.tScale || 1, v: L.vScale || 1, speed: 1, ended: null, demo: !!opts.demo, ghost: !!opts.ghost, seed, rng,
     st: makeStations(L), backlog: [], crates: [], sparks: [], flashes: [],
     patience: L.patience ?? 70, budget: L.budget ?? 0,
     debt: L.debt ?? 10, debtShare: L.debtShare ?? (L.mix ? L.mix.int : .2),
@@ -125,7 +130,7 @@ function addToBacklog(G, c) {
 function preload(G, spec) {
   for (const key of Object.keys(spec)) {
     const s = G.st.find(x => x.key === key);
-    for (let k = 0; k < spec[key]; k++) {
+    for (let k = 0; k < spec[key] * G.v; k++) {
       const c = newCrate(G, pickType(G));
       const [a0, a1] = G.L.preloadAge || [1, 4];
       c.released = -rnd(a0, a1); c.loc = s.i; c.state = 'queue';
@@ -219,7 +224,7 @@ function crateFail(G, c) {
   return p;
 }
 function deployTime(G, n) {
-  return G.owned.deployAuto ? .03 + .02 * n : (G.L.opsSetup ?? .2) + .1 * n;
+  return (G.owned.deployAuto ? .03 + .02 * n : (G.L.opsSetup ?? .2) + .1 * n) / G.v;
 }
 function procTime(G, s, c) {
   let t;
@@ -239,7 +244,7 @@ function procTime(G, s, c) {
   } else {
     t = deployTime(G, 1);
   }
-  return t * rnd(.8, 1.2);
+  return t * rnd(.8, 1.2) / G.v;
 }
 function workerSpeed(G, s, w) {
   let f = 1;
@@ -251,8 +256,8 @@ function workerSpeed(G, s, w) {
     if (G.t < G.teamOT.until) f *= 1.3;
     else if (G.t < G.teamOT.burn) f *= .6;
   }
-  const cs = (G.L.cs ?? .03) + (G.flags.utilDrive ? .05 : 0);
-  const over = stationLoad(s) - 2 * s.workers.length;
+  const cs = ((G.L.cs ?? .03) + (G.flags.utilDrive ? .05 : 0)) / G.v;
+  const over = stationLoad(s) - 2 * s.workers.length * G.v;
   if (over > 0) f /= 1 + cs * over;
   return f;
 }
@@ -293,10 +298,10 @@ function release(G, c) {
 }
 function canRelease(G, c) {
   if (!c.classified) return false;
-  if (G.flags.freeze && floorWip(G) >= (G.L.freezeWip ?? 10)) return false;
+  if (G.flags.freeze && floorWip(G) >= (G.L.freezeWip ?? 10) * G.v) return false;
   if (c.type === 'chg' && G.locks.chgFreeze > G.t) return false;
   if (G.flags.utilDrive) return true;
-  if (G.flags.rope && floorWip(G) >= (G.L.ropeN ?? 8)) return false;
+  if (G.flags.rope && floorWip(G) >= (G.L.ropeN ?? 8) * G.v) return false;
   return accepts(G, 1);
 }
 
@@ -340,11 +345,11 @@ function deliver(G, c) {
     return;
   }
   const onTime = lead <= (G.L.sla ?? 4);
-  patienceHit(G, onTime ? 1.5 : -(G.L.latePenalty ?? 1.5), onTime ? 'on-time delivery' : 'late delivery');
-  G.budget += G.L.income ?? .5;
+  patienceHit(G, (onTime ? 1.5 : -(G.L.latePenalty ?? 1.5)) / G.k / G.v, onTime ? 'on-time delivery' : 'late delivery');
+  G.budget += (G.L.income ?? .5) / G.k / G.v;
   if (G.L.debtDyn) {
-    if (c.type === 'biz') G.debt += G.L.debtDyn.up;
-    if (c.type === 'int') G.debt -= G.L.debtDyn.down;
+    if (c.type === 'biz') G.debt += G.L.debtDyn.up / G.v;
+    if (c.type === 'int') G.debt -= G.L.debtDyn.down / G.v;
     G.debt = clamp(G.debt, 0, 100);
   }
   spark(G, CUST_X + .3, BELT_Y + .15, .4, PAL.crate[c.type]);
@@ -398,7 +403,7 @@ function finishDeploy(G, s, w) {
     items.forEach(c => { c.defect = false; });
     const inc = newIncident(G, G.t + .05);
     G.pending.push({ at: inc.start + detectDelay(G), inc, size: items.length });
-    patienceHit(G, -3, 'failed deploy');
+    patienceHit(G, -3 / G.k / G.v, 'failed deploy');
     trigger(G, 'firstFail', items.length > 1
       ? `A deploy of ${items.length} items just failed. Which one broke it? Big batches make failures bigger and harder to diagnose.`
       : 'A change failed in production. Customers will feel it until it is fixed.');
@@ -597,14 +602,14 @@ function updateInner(G, dt) {
   else if (L.rate) {
     G.arrivalT -= dt;
     while (G.arrivalT <= 0) {
-      G.arrivalT += (1 / L.rate) * rnd(.6, 1.4);
+      G.arrivalT += (1 / (L.rate * G.v)) * rnd(.6, 1.4);
       addToBacklog(G, newCrate(G, pickType(G)));
     }
   }
   if (L.shadowRate) {
     G.shadowT -= dt;
     if (G.shadowT <= 0) {
-      G.shadowT = (1 / L.shadowRate) * rnd(.6, 1.4);
+      G.shadowT = (1 / (L.shadowRate * G.v)) * rnd(.6, 1.4);
       const c = newCrate(G, pickType(G));
       if (G.owned.singleIntake) addToBacklog(G, c);
       else {
@@ -619,7 +624,7 @@ function updateInner(G, dt) {
     G.fireT -= dt;
     if (G.fireT <= 0) {
       const rate = L.fireBase + G.debt * (L.fireDebt ?? .015);
-      G.fireT = (1 / rate) * rnd(.6, 1.4);
+      G.fireT = (1 / (rate * G.v)) * rnd(.6, 1.4);
       const r = rand(), i = r < .35 ? 1 : r < .6 ? 2 : 4;
       const inc = i === 4 ? newIncident(G, G.t - detectDelay(G) * .6) : null;
       spawnFire(G, i, { inc });
@@ -635,28 +640,28 @@ function updateInner(G, dt) {
   G.releaseCd -= dt;
   if (G.releaseCd <= 0 && G.backlog.length) {
     const idx = G.backlog.findIndex(c => canRelease(G, c));
-    if (idx >= 0) { release(G, G.backlog.splice(idx, 1)[0]); G.releaseCd = .07; }
+    if (idx >= 0) { release(G, G.backlog.splice(idx, 1)[0]); G.releaseCd = .07 / G.v; }
   }
 
   heroStep(G, dt);
   for (const s of G.st) stationStep(G, s, dt);
-  moveCrates(G, dt);
+  moveCrates(G, dt * G.k);
 
   // fog lifts once work is visible: a wave rolls from Dev to Ops
   if (G.owned.kanban) {
     if (G.kanbanT == null) G.kanbanT = G.t;
-    if (G.t > G.kanbanT + .75) G.fogA = Math.max(0, G.fogA - dt * 3);
+    if (G.t > G.kanbanT + .75 / G.k) G.fogA = Math.max(0, G.fogA - dt * 3 * G.k);
   }
 
   // patience
   const open = G.incidents.filter(i => !i.resolved && !i.drill && i.start <= G.t).length;
   const tol = L.backlogTol ?? 18;
-  G.patDrain.incidents = open * (L.incDrain ?? 5);
-  G.patDrain.backlog = G.backlog.length > tol ? (G.backlog.length - tol) * .15 : 0;
+  G.patDrain.incidents = open * (L.incDrain ?? 5) / G.v;
+  G.patDrain.backlog = G.backlog.length > tol * G.v ? (G.backlog.length - tol * G.v) * .15 / G.v : 0;
   // everything started, nothing finished: the business feels a crowded floor directly
   const wd = L.wipDrain, fw = wd ? floorWip(G) : 0;
-  G.patDrain.wip = wd && fw > wd.over ? (fw - wd.over) * wd.rate : 0;
-  G.patience = clamp(G.patience - (G.patDrain.incidents + G.patDrain.backlog + G.patDrain.wip) * dt, 0, 100);
+  G.patDrain.wip = wd && fw > wd.over * G.v ? (fw - wd.over * G.v) * wd.rate / G.v : 0;
+  G.patience = clamp(G.patience - (G.patDrain.incidents + G.patDrain.backlog + G.patDrain.wip) * dt / G.k, 0, 100);
 
   // debt
   if (L.debtSlider && G.locks.debt > G.t) G.debtShare = 0;
@@ -664,10 +669,11 @@ function updateInner(G, dt) {
   for (let k = G.schedule.length - 1; k >= 0; k--)
     if (G.t >= G.schedule[k].at) { const s = G.schedule.splice(k, 1)[0]; s.fn(G); }
 
-  for (const p of G.sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.vz -= 380 * dt; p.life -= dt; }
+  const dv = dt * G.k;
+  for (const p of G.sparks) { p.x += p.vx * dv; p.y += p.vy * dv; p.z += p.vz * dv; p.vz -= 380 * dv; p.life -= dv; }
   G.sparks = G.sparks.filter(p => p.life > 0);
-  G.flashes = G.flashes.filter(f => G.t - f.t0 < .2);
-  G.pulses = G.pulses.filter(p => G.t - p.t0 < .6);
+  G.flashes = G.flashes.filter(f => G.t - f.t0 < .2 / G.k);
+  G.pulses = G.pulses.filter(p => G.t - p.t0 < .6 / G.k);
 
   G.sampleT -= dt;
   if (G.sampleT <= 0) { G.sampleT = .25; sampleKpis(G); }
@@ -768,13 +774,13 @@ function tutorialAnswer(G, type) {
 
 // ---------- KPIs ----------
 function computeKpis(G) {
-  const t = G.t, win = Math.min(3, Math.max(t, .5));
+  const t = G.t, K = G.k || 1, W = 3 * K, win = Math.min(W, Math.max(t, .5));
   const del = G.stats.delivered.filter(d => !d.shadow);
-  const recent = del.slice(-10);
-  const thrN = del.filter(d => d.t > t - 3).length;
-  const res = G.stats.resolved.filter(r => r.t > t - 3 && !r.drill).length;
+  const recent = del.slice(-Math.round(10 * K * G.v));
+  const thrN = del.filter(d => d.t > t - W).length;
+  const res = G.stats.resolved.filter(r => r.t > t - W && !r.drill).length;
   const deps = G.stats.deploys;
-  const last20 = deps.slice(-20);
+  const last20 = deps.slice(-Math.round(20 * K * G.v));
   const visibleWip = G.crates.filter(c => c.loc >= 1 && c.loc <= 4 && !(c.shadow && !G.owned.kanban)).length;
   return {
     lead: recent.length ? avg(recent.map(d => d.lead)) : null,
@@ -784,8 +790,8 @@ function computeKpis(G) {
     unp: thrN + res ? res / (thrN + res) * 100 : 0,
     debt: G.debt,
     cfr: last20.length ? last20.filter(d => d.failed).length / last20.length * 100 : null,
-    deploys: deps.filter(d => d.t > t - 3).length / win,
-    mttr: G.stats.mttr.length ? avg(G.stats.mttr.slice(-5)) : 0,
+    deploys: deps.filter(d => d.t > t - W).length / win,
+    mttr: G.stats.mttr.length ? avg(G.stats.mttr.slice(-Math.round(5 * K * G.v))) : 0,
   };
 }
 function patienceHit(G, d, reason) {
@@ -796,6 +802,9 @@ function patienceHit(G, d, reason) {
 }
 function sampleKpis(G) {
   G.kpi = computeKpis(G);
+  // queue history per station: lets the floor show where work is piling up right now
+  G.qHist = G.qHist || [[], [], [], [], []];
+  for (const s of G.st) { const h = G.qHist[s.i]; h.push(s.q.length + s.out.length); if (h.length > 60) h.shift(); }
   const vals = Object.assign({ patience: G.patience }, G.kpi);
   G.seriesT.push(G.t);
   for (const k of Object.keys(vals)) (G.series[k] = G.series[k] || []).push(vals[k]);
@@ -810,9 +819,9 @@ function mentorSay(G, text, who) { if (!G.demo && !G.ghost) G.mentorQ.push({ tex
 function stationFog(G, i) {
   if (!G.L.fog || i < 1 || i > 4 || G.fogA <= 0) return 0;
   let a = 1;
-  if (G.kanbanT != null) a = clamp(1 - (G.t - G.kanbanT - (i - 1) * .15) / .25, 0, 1);
+  if (G.kanbanT != null) a = clamp(1 - ((G.t - G.kanbanT) * G.k - (i - 1) * .15) / .25, 0, 1);
   const p = G.peek[i];
-  if (p && G.t < p.until) a *= 1 - .92 * clamp(Math.min((G.t - p.t0) / .12, (p.until - G.t) / .3), 0, 1);
+  if (p && G.t < p.until) a *= 1 - .92 * clamp(Math.min((G.t - p.t0) * G.k / .12, (p.until - G.t) * G.k / .3), 0, 1);
   return a;
 }
 function peeking(G, i) { const p = G.peek[i]; return !!(p && G.t < p.until && G.kanbanT == null); }

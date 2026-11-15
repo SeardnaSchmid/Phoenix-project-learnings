@@ -132,12 +132,13 @@ const RUST = (() => {
 
 // ---------- scene ----------
 function drawScene(G, ui) {
-  const T = G.t * DAY_SEC;
+  const T = G.t * daySec(G);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cv.width, cv.height);
   const k = VIEW.dpr * VIEW.scale;
   ctx.setTransform(k, 0, 0, k, VIEW.dpr * VIEW.ox, VIEW.dpr * VIEW.oy);
   drawFloor(G, ui, T);
+  drawQueueHeat(G, T);
   for (const d of buildDrawables(G, T)) d.f();
   drawFog(G, T);
   drawOverlays(G, ui, T);
@@ -191,7 +192,7 @@ function drawFloor(G, ui, T) {
     floorOutline(x0, y0, x1, y1, .14, PAL.select, 3, [10, 6]);
   }
   for (const p of G.pulses) {
-    const s = G.st[p.i], k = (G.t - p.t0) / .6, [sx, sy] = P(s.x, 2.25, .13);
+    const s = G.st[p.i], k = (G.t - p.t0) * G.k / .6, [sx, sy] = P(s.x, 2.25, .13);
     ctx.save();
     ctx.globalAlpha = Math.max(0, 1 - k);
     glowOn(PAL.select);
@@ -477,7 +478,46 @@ function drawFog(G, T) {
   }
 }
 
+// Where work piles up: a heat glow under each queue (yellow → red with length) that pulses
+// while the pile is growing, plus a label. It shows the pile, never names the constraint.
+function queueTrend(G, i) {
+  const h = (G.qHist || [])[i];
+  if (!h || h.length < 3) return 0;
+  const back = Math.min(h.length - 1, Math.round(4 * (G.k || 1)));
+  return h[h.length - 1] - h[h.length - 1 - back];
+}
+function queueHeat(G, s) {
+  if (s.i < 1 || stationFog(G, s.i) > .5) return null;
+  const v = G.v || 1, q = s.q.length + s.out.length, tr = queueTrend(G, s.i);
+  if (q < 3 * v) return null;
+  return { q, tr, heat: clamp((q - 2 * v) / (10 * v), 0, 1), growing: tr >= 2 * v, shrinking: tr <= -2 * v };
+}
+function drawQueueHeat(G, T) {
+  for (const s of G.st) {
+    const h = queueHeat(G, s);
+    if (!h) continue;
+    const [sx, sy] = P(s.x - 1.4, BELT_Y + .2, 0);
+    const pulse = h.growing ? .55 + .45 * Math.sin(T * 6) : .7;
+    const a = (.35 + .5 * h.heat) * pulse;
+    const col = h.heat > .55 ? '255,60,80' : '255,185,60';
+    const r = 120 + 120 * h.heat;
+    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+    g.addColorStop(0, `rgba(${col},${a})`);
+    g.addColorStop(.45, `rgba(${col},${a * .55})`);
+    g.addColorStop(1, `rgba(${col},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(sx, sy, r, r * .5, 0, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
 function drawOverlays(G, ui, T) {
+  for (const s of G.st) {
+    const h = queueHeat(G, s);
+    if (!h || h.q < 4 * (G.v || 1)) continue;
+    const [qx, qy] = P(s.x - 1.5, BELT_Y, 1.75);
+    const txt = `${h.q} waiting${h.growing ? ' ▲' : h.shrinking ? ' ▼' : ''}`;
+    pill(txt, qx, qy, h.heat > .55 ? PAL.bad : PAL.warn, h.heat > .55 ? '#ffffff' : '#2a2108');
+  }
   for (const s of G.st) {
     const [sx, sy] = s.key === 'gate' ? P(s.x, 4.5, 2.4) : P(s.x, 2, 2.6);
     if (s.i > 0) {
@@ -521,7 +561,7 @@ function drawOverlays(G, ui, T) {
   else if (G.t < H.burnUntil && G.t >= H.otUntil) bubble('z', H.x, H.y);
 
   for (const f of G.flashes) {
-    const p = (G.t - f.t0) / .15;
+    const p = (G.t - f.t0) * G.k / .15;
     if (p > 1) continue;
     const [sx, sy] = P(f.x, f.y, f.z);
     ctx.globalAlpha = 1 - p;
@@ -542,7 +582,7 @@ function drawOverlays(G, ui, T) {
 }
 // Right after the fog lifts (and on the tour), every station says how much it has in progress.
 function showWipPills(G) {
-  if (G.L.fog && G.kanbanT != null && G.t - G.kanbanT < 2.5) return true;
+  if (G.L.fog && G.kanbanT != null && (G.t - G.kanbanT) * G.k < 2.5) return true;
   return !!(G.L.tour && !G.tourDone && G.tourStep != null && TOUR[G.tourStep].wipPills);
 }
 function pill(text, x, y, color, ink) {

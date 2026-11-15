@@ -87,13 +87,13 @@ const TOOLS = {
   },
   freeze: {
     name: 'Project freeze', kind: 'toggle',
-    desc: 'Stop starting: new work waits at Demand until fewer than 8 items are in progress. Only fires still go straight in.',
+    desc: 'Stop starting: new work waits at Demand until the floor drops below a fixed cap of work in progress. Only fires still go straight in.',
     get: G => !!G.flags.freeze, set: (G, v) => { G.flags.freeze = v; },
   },
   teamOvertime: {
     name: 'Team overtime', kind: 'buy', cost: 2, trap: true,
     desc: 'Everyone works late for two days. More hours, more output, right?',
-    apply: G => { G.teamOT = { until: G.t + 1.5, burn: G.t + 5.5 }; },
+    apply: G => { G.teamOT = { until: G.t + 1.5 * G.k, burn: G.t + 5.5 * G.k }; },
     why: 'Overtime gives a short burst, then tired people slow down and make more mistakes. Defects and rework grow. It treats a symptom while the cause (too much WIP) stays.',
     after: 'The team is exhausted now. Notice the slowdown and the defects coming back as rework.',
   },
@@ -140,7 +140,7 @@ const TOOLS = {
   heroOvertime: {
     name: 'Hero works overtime', kind: 'buy', cost: 1, trap: true,
     desc: 'Ask your star engineer to push through the weekend.',
-    apply: G => { G.hero.otUntil = G.t + 2; G.hero.burnUntil = G.t + 5.5; },
+    apply: G => { G.hero.otUntil = G.t + 2 * G.k; G.hero.burnUntil = G.t + 5.5 * G.k; },
     why: 'Heroics feel like they help. Then the hero burns out, slows down and makes mistakes, and becomes an even tighter bottleneck. The fix is to need the hero less, not to push them harder.',
     after: 'The hero looks worn out. The constraint just got slower.',
   },
@@ -284,7 +284,8 @@ const FEEDBACK = {
 };
 
 function releaseBurst(G, n, type) {
-  for (let k = 0; k < n; k++) G.schedule.push({ at: G.t + k * .06, fn: g => release(g, newCrate(g, type)) });
+  n *= G.v;
+  for (let k = 0; k < n; k++) G.schedule.push({ at: G.t + k * .06 / G.v, fn: g => release(g, newCrate(g, type)) });
 }
 
 const LEVELS = [
@@ -356,10 +357,10 @@ const LEVELS = [
     id: 2, title: 'Fog of War', concept: 'Make work visible',
     hook: 'Everyone is busy, nothing ships, and nobody can say what\'s in progress. Requests reach engineers through hallways, chats and favors. The floor is in fog.',
     learn: ['You can\'t manage work you can\'t see', 'Hidden WIP is the silent killer', 'Freezing new work lets the pile drain'],
-    days: 12, sla: 3.5, rate: 1.6, mix: { biz: .45, int: .2, chg: .35 }, workers: { dev: 3, test: 2 },
-    fog: true, shadowRate: 1.8, preload: { dev: 7, test: 7, gate: 1, ops: 2 }, preloadAge: [2, 4], backlogTol: 25, freezeWip: 8,
-    debt: 10, fires: true, fireBase: .1, fireDebt: .015, pDef: .05, incDrain: 3, fq: .4, cs: .06, budget: 8,
-    patience: 50, wipDrain: { over: 9, rate: .5 }, latePenalty: .5,
+    days: 12, vScale: 4, sla: 3.5, rate: 2, mix: { biz: .45, int: .2, chg: .35 }, workers: { dev: 3, test: 2 },
+    fog: true, shadowRate: 2, preload: { dev: 7, test: 7, gate: 1, ops: 2 }, preloadAge: [2, 4], backlogTol: 25, freezeWip: 8,
+    debt: 10, fires: true, fireBase: .1, fireDebt: .015, pDef: .05, incDrain: 3, fq: .4, cs: .08, budget: 8,
+    patience: 55, wipDrain: { over: 9, rate: .5 }, latePenalty: .5,
     kpis: ['lead', 'thr', 'wip', 'unp'],
     tools: ['kanban', 'singleIntake', 'freeze', 'teamOvertime'],
     missed: [
@@ -373,13 +374,13 @@ const LEVELS = [
         say: 'You walked over and asked. It works, until you look away. Want to do that all day? What if every piece of work sat on one board that everyone can see?' },
       singleIntake: { after: 'kanban', when: G => G.seen.shadow, late: 3,
         say: 'There it is: work that never went through Demand. Somebody asked an engineer directly. As long as there are side doors, no board stays true. How do you close them?' },
-      freeze: { after: 'kanban', when: G => G.seen.board && computeKpis(G).wip > 14, late: 4,
+      freeze: { after: 'kanban', when: G => G.seen.board && computeKpis(G).wip > 14 * G.v, late: 4,
         say: 'Count the board: that much in progress for a handful of people. Everything waits on everything. What if you stopped starting new projects until the floor has finished some?' },
     },
     goals: [
       { label: 'Find out what\'s going on', tip: 'Click stations in the fog to ask around', test: G => !!G.disc.kanban, show: G => G.disc.kanban ? 'yes' : `${G.peeked.size} / 2 asked` },
       { label: 'Make all work visible', reveal: G => !!G.disc.kanban, test: G => !!G.owned.kanban, show: G => G.owned.kanban ? 'yes' : 'no' },
-      { label: 'Work in progress ≤ 14', reveal: G => !!G.owned.kanban, kpi: 'wip', op: '<=', val: 14 },
+      { label: 'Work in progress ≤ 56', reveal: G => !!G.owned.kanban, kpi: 'wip', op: '<=', val: 56 },
       { label: 'Lead time ≤ 4.5 days', reveal: G => !!G.owned.kanban, kpi: 'lead', op: '<=', val: 4.5 },
     ],
     events: [{
@@ -387,7 +388,7 @@ const LEVELS = [
       body: 'A VP drops by: "The board loves this new initiative. Can your team start all six work packages right away, alongside everything else?"',
       options: [
         { label: 'Start all six now', desc: 'Show commitment.', trap: 'Starting more work doesn\'t finish anything sooner. Six more items in progress just make everything else wait longer.', apply: G => { releaseBurst(G, 6, 'biz'); patienceHit(G, 4, 'your decision'); }, expect: { thr: 1 } },
-        { label: 'Add them to the backlog', expect: { wip: -1 }, why: 'Keeping new work in the backlog protected the floor from more WIP. Starting later often means finishing sooner.', desc: 'We start them when we have capacity.', apply: G => { for (let k = 0; k < 6; k++) addToBacklog(G, newCrate(G, 'biz')); patienceHit(G, -4, 'your decision'); } },
+        { label: 'Add them to the backlog', expect: { wip: -1 }, why: 'Keeping new work in the backlog protected the floor from more WIP. Starting later often means finishing sooner.', desc: 'We start them when we have capacity.', apply: G => { for (let k = 0; k < 6 * G.v; k++) addToBacklog(G, newCrate(G, 'biz')); patienceHit(G, -4, 'your decision'); } },
       ],
     }],
     mentor: [
@@ -395,7 +396,7 @@ const LEVELS = [
       { id: 'a', when: G => G.t > 1 && !G.disc.kanban, pulse: [1, 2, 3, 4], text: 'Before you spend anything: what is the team working on right now? Neither of us can tell. Click a station in the fog and ask around.' },
       { id: 'a2', when: G => G.peeked.size === 1 && !G.disc.kanban, text: 'Interesting. Now ask at another station. And keep an eye on the first one: how long does what you learned stay true?' },
       { id: 'c', when: G => G.owned.kanban && !G.disc.singleIntake && G.crates.some(c => c.shadow && c.state === 'fall' && c.loc && stationFog(G, c.loc) < .5), text: 'Did you see that? Work just dropped onto the floor without going through Demand. Click that station and find out where it came from.' },
-      { id: 'b', when: G => G.owned.kanban && G.t > G.kanbanT + 1.5 && computeKpis(G).wip > 16 && !G.disc.freeze, text: 'Open the board (B). How much is in progress, compared to how many people work here?' },
+      { id: 'b', when: G => G.owned.kanban && G.t > G.kanbanT + 1.5 && computeKpis(G).wip > 16 * G.v && !G.disc.freeze, text: 'Open the board (B). How much is in progress, compared to how many people work here?' },
       { id: 'd', when: G => G.flags.freeze && G.backlog.length > 12, text: 'The backlog at Demand is growing. That\'s fine: waiting there is cheap. Waiting half-done on the floor is what\'s expensive.' },
     ],
     generic: ['firstRework'],
