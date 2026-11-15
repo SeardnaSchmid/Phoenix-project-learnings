@@ -542,7 +542,7 @@ function drawOverlays(G, ui, T) {
 }
 // Right after the fog lifts (and on the tour), every station says how much it has in progress.
 function showWipPills(G) {
-  if (G.kanbanT != null && G.t - G.kanbanT < 2.5) return true;
+  if (G.L.fog && G.kanbanT != null && G.t - G.kanbanT < 2.5) return true;
   return !!(G.L.tour && !G.tourDone && G.tourStep != null && TOUR[G.tourStep].wipPills);
 }
 function pill(text, x, y, color, ink) {

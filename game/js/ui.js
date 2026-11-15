@@ -440,6 +440,7 @@ function updateHud() {
   updateTools();
   if (UI.selected != null) updateStationPanel();
   positionTour();
+  updateTourTask();
   if (!$('#board').classList.contains('hidden')) renderBoard();
 }
 
@@ -452,6 +453,7 @@ function renderTour() {
   el.classList.remove('hidden');
   el.innerHTML = `<div class="tour-k">Floor tour · ${i + 1} / ${TOUR.length}</div><h4>${st.title}</h4><p>${st.text}</p>
     <div class="tour-dots">${TOUR.map((_, k) => `<i class="${k === i ? 'on' : k < i ? 'done' : ''}"></i>`).join('')}</div>
+    ${st.task ? `<div class="tour-task" data-task>${st.task.text}</div>` : ''}
     <div class="tour-actions">${i > 0 ? '<button class="btn" data-back>Back</button>' : ''}<button class="btn primary" data-next>${i === TOUR.length - 1 ? 'Finish tour' : 'Next →'}</button></div>`;
   el.querySelector('[data-next]').onclick = () => tourGo(1);
   const b = el.querySelector('[data-back]');
@@ -460,9 +462,22 @@ function renderTour() {
   positionTour();
   updateHud();
 }
+// A tour step with a task only continues once the player has done it.
+function tourTaskDone() {
+  const st = TOUR[UI.G.tourStep];
+  return !st.task || st.task.done(UI.G);
+}
+function updateTourTask() {
+  if (!tourActive()) return;
+  const done = tourTaskDone(), el = $('#tour');
+  const nx = el.querySelector('[data-next]'), tk = el.querySelector('[data-task]');
+  if (nx) nx.disabled = !done;
+  if (tk) tk.classList.toggle('done', done);
+}
 function tourGo(d) {
   const G = UI.G;
   if (!tourActive()) return;
+  if (d > 0 && !tourTaskDone()) return;
   const n = G.tourStep + d;
   if (n < 0) return;
   if (n >= TOUR.length) { G.tourDone = true; endTourUi(); G.ended = 'complete'; return; }
@@ -534,6 +549,10 @@ const VOICES = {
     '<path d="M12.5 15c0-6 15-6 15 0-2-3-13-3-15 0z" fill="#d9d9e3"/><circle cx="17" cy="17.5" r="2.4" fill="none" stroke="#222" stroke-width="1.2"/><circle cx="23" cy="17.5" r="2.4" fill="none" stroke="#222" stroke-width="1.2"/><path d="M19.4 17.5h1.2" stroke="#222" stroke-width="1.2"/>') },
   boss: { name: 'The Board', tag: 'Pressure', role: '@board', av: AV('#e0614a', '#2b2f3a',
     '<path d="M12.5 15.5c0-7 15-7 15 0-3-4-12-4-15 0z" fill="#3a2a22"/><path d="M17 28l3 3 3-3z" fill="#fff"/><path d="M19 30.5h2l1 8h-4z" fill="#c22f3c"/>') },
+  ops: { name: 'Ops Lead', tag: 'Alarm', role: '@ops', av: AV('#3fae78', '#22423a',
+    '<path d="M12.5 15c0-6 15-6 15 0z" fill="#5a3a22"/><path d="M11 17a9 9 0 0 1 18 0" fill="none" stroke="#222" stroke-width="1.6"/><rect x="9.5" y="16" width="3" height="5" rx="1.2" fill="#222"/>') },
+  sales: { name: 'Sales', tag: 'Request', role: '@sales', av: AV('#4ea3ff', '#1d3a63',
+    '<path d="M12 16c0-8 16-8 16 0-2-2-5-3-8-3s-6 1-8 3z" fill="#c9852f"/><path d="M18 28h4l-2 4z" fill="#fff"/>') },
   security: { name: 'Security Chief', tag: 'Policy', role: '@security', av: AV('#3f8fd8', '#24344a',
     '<path d="M11.5 14.5c1-6 16-6 17 0z" fill="#1b2433"/><path d="M10 14.5h20v2H10z" fill="#1b2433"/><path d="M26 32l3 1v3c0 2-1.5 3-3 3.5-1.5-.5-3-1.5-3-3.5v-3z" fill="#ffd25a"/>') },
 };
@@ -609,6 +628,13 @@ function updateStationPanel(rebuild) {
       html += `<div class="limit-ctl" style="margin-top:10px;font-size:12.5px">WIP limit <button data-lim="-1">−</button><b>${s.limit ?? '∞'}</b><button data-lim="1">+</button>
         <span style="margin-left:auto">in station: <b>${stationCount(G, s.i)}</b></span></div>`;
     }
+  }
+  // level-specific diagnosis: what you learn by looking closely at this station
+  G.seen['st_' + s.key] = true;
+  const insp = !fog && !peek && G.L.inspect && G.L.inspect[s.key] && G.L.inspect[s.key](G, s);
+  if (insp) {
+    html += `<div class="sp-insight"><div class="eyebrow">You notice</div>${insp.html}</div>`;
+    if (insp.seen) G.seen[insp.seen] = true;
   }
   el.innerHTML = html;
   el.querySelector('[data-close]').onclick = closeStation;
@@ -745,7 +771,7 @@ function showClassify(item, idx) {
   const card = openModal(`
     <div class="eyebrow">Request ${idx + 1} of ${G.L.items.length}</div>
     <h2>What type of work is this?</h2>
-    <div class="quote">"${esc(item.text)}"</div>
+    ${item.from ? `<div class="feed req">${postHtml({ who: item.from, text: item.text, t: G.t }, 0)}</div>` : `<div class="quote">"${esc(item.text)}"</div>`}
     <div class="types">${Object.keys(TYPE_INFO).map(t => `<button class="opt" data-t="${t}">${typeIcon(t, 'sw')}<span><b>${TYPE_INFO[t].name}</b><small>${TYPE_INFO[t].desc}</small></span></button>`).join('')}</div>
     <div id="fb"></div>`);
   card.querySelectorAll('[data-t]').forEach(b => b.onclick = () => {

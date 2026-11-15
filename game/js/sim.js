@@ -751,6 +751,8 @@ function tutorialAnswer(G, type) {
   const T = G.tut, { c, it } = T.waiting;
   const ok = type === it.type;
   if (ok) T.correct++;
+  // triage has stakes: a misread request lands in the wrong queue and someone waits
+  patienceHit(G, ok ? 2 : -6, ok ? 'correct triage' : 'misrouted request');
   T.answers.push({ it, type, ok });
   c.classified = true;
   if (c.type === 'unp') {

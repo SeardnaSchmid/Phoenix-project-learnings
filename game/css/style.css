@@ -542,3 +542,15 @@ body.tour-hud .kpi, body.tour-hud #patBlock, body.tour-hud .left-col > .panel, b
 .db-more details[open] { padding-bottom: 12px; }
 .btn.primary.ready { animation: readyPulse 1.4s ease-in-out 3; }
 @keyframes readyPulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 35%, transparent); } }
+.post.who-ops { --vc: #3fae78; } .post.who-sales { --vc: #4ea3ff; }
+.mentor[data-who="ops"] { --vc: #3fae78; } .mentor[data-who="sales"] { --vc: #4ea3ff; }
+.feed.req { margin: 6px 0 12px; }
+.feed.req .post { animation: none; }
+.sp-insight { margin-top: 10px; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent); font-size: 13px; line-height: 1.45; }
+.sp-insight .eyebrow { color: var(--accent); margin-bottom: 3px; }
+.sp-insight b { color: var(--text); }
+.tour-task { margin: 10px 0 0; padding: 8px 10px; border-radius: 9px; border: 1px dashed var(--accent); font-size: 13px; font-weight: 600; color: var(--accent); }
+.tour-task::before { content: '▶ '; }
+.tour-task.done { border-style: solid; border-color: var(--good); color: var(--good); }
+.tour-task.done::before { content: '✓ '; }

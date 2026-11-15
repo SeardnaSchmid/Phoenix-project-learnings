@@ -27,6 +27,36 @@ const TYPE_INFO = {
   unp: { name: 'Unplanned work', desc: 'Incidents and fires. It jumps the queue and displaces everything else.' },
 };
 
+// Diagnosis for "Too Much Stuff": the wait-time curve, read at the busiest point.
+function waitInfo(G, i) {
+  const s = G.st[i], u = s.u;
+  if (u < .8) return { html: `At ${Math.round(u * 100)}% busy, waits here stay short. Some slack is healthy.` };
+  const mult = u >= .99 ? 'endless' : `about ${(u / (1 - u)).toFixed(0)}×`;
+  return { seen: 'waitCurve', html: `<b>${Math.round(u * 100)}% busy</b>: every item waits ${mult} as long as the actual work takes. Look at the curve: near 100% it goes vertical.` };
+}
+// Diagnosis for "Fires": where fires come from, and how late you notice them.
+function fireInfo(G, i) {
+  const n = G.crates.filter(c => c.loc === i && c.type === 'unp').length;
+  if (!n) return null;
+  return { seen: 'fireCause', html: `<b>${n} fire${n > 1 ? 's' : ''}</b> here. They come from old shortcuts in the code: tech debt is at <b>${Math.round(G.debt)}</b>, and every rushed feature adds more.` };
+}
+function detectInfo(G) {
+  const inc = G.incidents.filter(x => !x.drill && x.start <= G.t);
+  if (!inc.length) return { html: 'No customer-facing incident yet. When one happens, look here: how long until anyone noticed?' };
+  const late = detectDelay(G);
+  return { seen: G.fq < .9 ? 'lateDetect' : null, html: G.fq >= .9 ? 'Monitoring spots incidents within minutes now.'
+    : `The last outage was noticed <b>${late.toFixed(1)} days</b> after it started, when customers called. Until then, nobody even knew.` };
+}
+
+// Diagnosis for "The Hero": items at a station that only the hero can do.
+function heroWaitInfo(G, i) {
+  const s = G.st[i], n = s.q.filter(c => c.needsHero).length;
+  if (s.heroProb <= 0) return { html: 'Nothing here needs the hero anymore: the runbook covers it.' };
+  return { seen: n > 0 ? 'heroWait' : null,
+    html: n ? `<b>${n} item${n > 1 ? 's' : ''}</b> here can't move until the hero walks over. Nobody else knows how to do them.`
+      : `About <b>${Math.round(s.heroProb * 100)}%</b> of the work here needs the hero. Right now nothing is waiting for them.` };
+}
+
 function hire(G, s) {
   const kind = s.key === 'gate' ? 'officer' : s.key === 'ops' ? 'junior' : 'normal';
   const w = makeWorker(kind, s.workers.length + 1);
@@ -288,16 +318,16 @@ const LEVELS = [
     id: 1, title: 'First Day', concept: 'The four types of work',
     hook: 'Welcome to your first day running IT operations. Before you can fix anything, you need to know what kind of work you are dealing with. Requests are arriving at the Demand desk.',
     learn: ['The four types of work', 'Why unplanned work is different from everything else'],
-    days: 8.5, tutorial: true, sla: 4, fq: .4, debt: 0, patience: 80,
+    days: 8.5, tutorial: true, sla: 4, fq: .4, debt: 0, patience: 60,
     items: [
-      { text: 'Launch the new customer loyalty app before the holiday season.', type: 'biz', why: 'New capability the business asked for: a business project.' },
-      { text: 'Migrate the email servers to new hardware.', type: 'int', why: 'IT improving its own infrastructure: an internal IT project.' },
-      { text: 'Apply the security patch to the payment database tonight.', type: 'chg', why: 'A modification to a running system: a change.' },
-      { text: 'The web shop is down! Customers can\'t place orders.', type: 'unp', why: 'Nobody planned this, and it interrupts everything else: unplanned work.' },
-      { text: 'Add PayPal as a payment option for the spring campaign.', type: 'biz', why: 'Requested by the business to win customers: a business project.' },
-      { text: 'Automate the creation of test environments.', type: 'int', why: 'Improves how IT works: an internal project, and the kind that pays down debt.' },
-      { text: 'Update the firewall rule for the new logistics partner.', type: 'chg', why: 'A small change to production configuration.' },
-      { text: 'Last night\'s backup failed. Order data is at risk.', type: 'unp', why: 'A fire that must be handled now: unplanned work.' },
+      { from: 'sales', text: 'Launch the new customer loyalty app before the holiday season.', type: 'biz', why: 'New capability the business asked for: a business project.' },
+      { from: 'ops', text: 'Migrate the email servers to new hardware.', type: 'int', why: 'IT improving its own infrastructure: an internal IT project.' },
+      { from: 'security', text: 'Apply the security patch to the payment database tonight.', type: 'chg', why: 'A modification to a running system: a change.' },
+      { from: 'ops', text: 'The web shop is down! Customers can\'t place orders.', type: 'unp', why: 'Nobody planned this, and it interrupts everything else: unplanned work.' },
+      { from: 'boss', text: 'Add PayPal as a payment option for the spring campaign.', type: 'biz', why: 'Requested by the business to win customers: a business project.' },
+      { from: 'mentor', text: 'Automate the creation of test environments.', type: 'int', why: 'Improves how IT works: an internal project, and the kind that pays down debt.' },
+      { from: 'security', text: 'Update the firewall rule for the new logistics partner.', type: 'chg', why: 'A small change to production configuration.' },
+      { from: 'ops', text: 'Last night\'s backup failed. Order data is at risk.', type: 'unp', why: 'A fire that must be handled now: unplanned work.' },
     ],
     kpis: ['lead', 'thr', 'wip', 'unp'],
     tools: [],
@@ -390,7 +420,7 @@ const LEVELS = [
     days: 12, sla: 4, rate: 1.9, mix: { biz: .45, int: .2, chg: .35 },
     heroProb: { dev: .3, test: .3, gate: .25, ops: 1 }, showHero: true, constraint: 'ops', ropeN: 8,
     preload: { ops: 5, dev: 3, test: 2 },
-    debt: 15, fires: true, fireBase: .15, fireDebt: .015, fq: .4, cs: .03, budget: 9, patience: 70,
+    debt: 15, fires: true, fireBase: .15, fireDebt: .015, fq: .4, cs: .03, budget: 9, patience: 60, latePenalty: .5, wipDrain: { over: 11, rate: .4 },
     setup: G => { G.owned.kanban = true; },
     kpis: ['lead', 'thr', 'wip', 'unp'],
     tools: ['markConstraint', 'protectHero', 'rope', 'runbook', 'hire', 'heroOvertime'],
@@ -402,10 +432,26 @@ const LEVELS = [
       { done: G => G.st[1].heroProb === 0 || G.st[2].heroProb === 0, text: 'Runbooks for Dev and Test: each one stops a stream of escalations that pull the hero away.' },
     ],
     steps: true,
+    discover: {
+      protectHero: { when: G => G.steps.identify, late: 4,
+        say: 'Right: Ops sets the pace, and really it\'s the hero. Now watch them: every time someone calls, they walk away and deploys stop. What if they simply stayed?' },
+      runbook: { when: G => G.seen.heroWait, late: 5,
+        say: 'Those crates are waiting for one person, because only the hero knows how. Knowledge locked in one head is a constraint. How could others learn it?' },
+      rope: { after: 'protectHero', when: G => G.seen.opsPile, late: 3,
+        say: 'The hero stays put now, but the pile in front of Ops keeps growing. Does pushing more work onto the floor than Ops can deploy help anyone?' },
+    },
+    inspect: {
+      dev: G => heroWaitInfo(G, 1), test: G => heroWaitInfo(G, 2), gate: G => heroWaitInfo(G, 3),
+      ops: G => {
+        const s = G.st[4], away = G.hero.state !== 'home';
+        return { seen: s.q.length >= 5 ? 'opsPile' : null,
+          html: `<b>${s.q.length} items</b> wait to be deployed. Only the hero can do most deploys, and right now the hero is <b>${away ? 'away at another station' : 'here'}</b>. Pulled away ${G.stats.interruptions}× so far.` };
+      },
+    },
     goals: [
-      { label: 'Identify the constraint', test: G => G.steps.identify, show: G => G.steps.identify ? 'yes' : 'no' },
-      { label: 'Throughput ≥ 1.7 / day', kpi: 'thr', op: '>=', val: 1.7 },
-      { label: 'Lead time ≤ 4 days', kpi: 'lead', op: '<=', val: 4 },
+      { label: 'Identify the constraint', tip: 'Watch where work piles up, then use "Mark the constraint"', test: G => G.steps.identify, show: G => G.steps.identify ? 'yes' : 'no' },
+      { label: 'Throughput ≥ 1.7 / day', reveal: G => G.steps.identify, kpi: 'thr', op: '>=', val: 1.7 },
+      { label: 'Lead time ≤ 4 days', reveal: G => G.steps.identify, kpi: 'lead', op: '<=', val: 4 },
     ],
     events: [{
       day: 5, title: 'A quick favor',
@@ -417,10 +463,8 @@ const LEVELS = [
     }],
     mentor: [
       { id: 'boss', who: 'boss', when: G => G.t > .9, text: 'We pay that one engineer a fortune and still nothing ships. Just hire more people. Problem solved.' },
-      { id: 'a', when: G => G.t > .2, text: 'Orange star crates can only be done by the hero. Before you change anything: where does work pile up, and who is always busy?' },
+      { id: 'a', when: G => G.t > 1.2 && !G.steps.identify, pulse: [4], text: 'Crates with a ★ can only be done by the hero. Before you change anything: where does work pile up, and who is always running around? Click the stations, then mark the constraint.' },
       { id: 'b', when: G => G.st[4].q.length > 10 && !G.steps.identify, text: 'Ops has a growing pile. Is Ops slow, or is someone missing from Ops?' },
-      { id: 'c', when: G => G.steps.identify && G.t > 2 && !G.steps.exploit, text: 'You found the constraint. Step 2: don\'t waste a minute of it. What keeps pulling the hero away?' },
-      { id: 'd', when: G => G.steps.exploit && !G.steps.subordinate && G.t > 4, text: 'The hero is protected. But does it help to keep pushing more work onto the floor than Ops can handle?' },
       { id: 'e', when: G => G.steps.subordinate && !G.steps.elevate, text: 'Steps 1–3 done. Now the real fix: how can the factory need the hero less?' },
     ],
     generic: ['heroPulled', 'firstIncident'],
@@ -444,17 +488,25 @@ const LEVELS = [
     learn: ['WIP limits: stop starting, start finishing', 'Wait time explodes near 100% utilization', 'Multitasking makes everyone slower'],
     days: 12, sla: 4, rate: 2.0, mix: { biz: .5, int: .2, chg: .3 }, constraint: 'test',
     preload: { dev: 4, test: 8, gate: 1, ops: 1 },
-    debt: 10, fires: true, fireBase: .15, fireDebt: .015, fq: .5, cs: .1, budget: 7, patience: 65,
+    debt: 10, fires: true, fireBase: .15, fireDebt: .015, fq: .5, cs: .1, budget: 7, patience: 55, latePenalty: .5, wipDrain: { over: 11, rate: .4 },
     setup: G => { G.owned.kanban = true; G.flags.protectHero = true; },
     kpis: ['lead', 'thr', 'wip', 'unp'],
     tools: ['wipLimits', 'hire', 'utilDrive'],
     missed: [
       { done: G => G.st.some(s => s.limit != null), text: 'WIP limits: the core of this shift. Limits cut multitasking, queues and lead time.' },
     ],
+    discover: {
+      wipLimits: { when: G => G.seen.waitCurve, late: 4,
+        say: 'There it is: the busier a station, the longer everything waits, and near 100% it explodes. Busy is not the same as productive. What if a station could only take new work when it has room?' },
+    },
+    inspect: {
+      dev: G => waitInfo(G, 1), test: G => waitInfo(G, 2), gate: G => waitInfo(G, 3), ops: G => waitInfo(G, 4),
+    },
     goals: [
-      { label: 'Lead time ≤ 3.5 days', kpi: 'lead', op: '<=', val: 3.5 },
-      { label: 'Throughput ≥ 2.0 / day', kpi: 'thr', op: '>=', val: 2.0 },
-      { label: 'Work in progress ≤ 12', kpi: 'wip', op: '<=', val: 12 },
+      { label: 'Find out why everything is late', tip: 'Click the busiest station and read its wait-time curve', test: G => !!G.disc.wipLimits, show: G => G.disc.wipLimits ? 'yes' : 'no' },
+      { label: 'Work in progress ≤ 12', reveal: G => !!G.disc.wipLimits, kpi: 'wip', op: '<=', val: 12 },
+      { label: 'Lead time ≤ 3.5 days', reveal: G => !!G.disc.wipLimits, kpi: 'lead', op: '<=', val: 3.5 },
+      { label: 'Throughput ≥ 2.0 / day', reveal: G => !!G.disc.wipLimits, kpi: 'thr', op: '>=', val: 2.0 },
     ],
     events: [{
       day: 3, title: 'Show some progress',
@@ -466,7 +518,7 @@ const LEVELS = [
     }],
     mentor: [
       { id: 'boss', who: 'boss', when: G => G.t > 1, text: 'I walked the floor: people waiting around, desks idle. I want every engineer at 100% utilization. Push more work in!' },
-      { id: 'a', when: G => G.t > .2, text: 'Click on the Test station and look at the wait-time curve. What happens to waiting as utilization approaches 100%?' },
+      { id: 'a', when: G => G.t > 1.4 && !G.disc.wipLimits, pulse: [2], text: 'Everyone is at full speed, yet everything is late. Click the busiest station and look at its wait-time curve. What happens to waiting as a station gets close to 100% busy?' },
       { id: 'b', when: G => G.owned.wipLimits && G.st.some(s => s.limit != null), text: 'A limit is set. Now the station pulls work only when it has room. Watch lead time over the next couple of days.' },
       { id: 'c', when: G => G.t > 5 && !G.owned.wipLimits, text: 'Everyone is busy, yet lead time keeps growing. Why isn\'t busy the same as productive?' },
     ],
@@ -491,7 +543,7 @@ const LEVELS = [
     learn: ['Technical debt turns into unplanned work', 'Reserve ~20% capacity for internal improvements', 'Fast feedback shrinks every problem'],
     days: 12, sla: 4, rate: 1.9, mix: { biz: .55, int: .1, chg: .35 },
     debtSlider: true, debtShare: .05, debt: 55, debtDyn: { up: 1.6, down: 11 },
-    fires: true, fireBase: .05, fireDebt: .015, fq: 0, cs: .04, budget: 8, patience: 70,
+    fires: true, fireBase: .05, fireDebt: .015, fq: 0, cs: .04, budget: 8, patience: 40, latePenalty: .5, incDrain: 7,
     setup: G => { G.owned.kanban = true; G.flags.protectHero = true; },
     kpis: ['unp', 'debt', 'mttr', 'thr'],
     tools: ['debtSlider', 'monitoring', 'firefighters'],
@@ -499,10 +551,21 @@ const LEVELS = [
       { done: G => G.debtShare >= .2, text: 'A ~20% debt reserve: less than that, and debt keeps feeding the fires.' },
       { done: G => (G.toolUses.monitoring || 0) > 0, text: 'Fix the feedback pipe: without monitoring, you learn about incidents from angry customers.' },
     ],
+    discover: {
+      monitoring: { when: G => G.seen.lateDetect, late: 3.5,
+        say: 'The customers told you about that outage before your own systems did. You\'re flying blind. How would you find out in minutes instead of days?' },
+      debtSlider: { when: G => G.seen.fireCause, late: 4.5,
+        say: 'That fire wasn\'t bad luck. It\'s interest on old shortcuts, and every rushed feature adds more. What if part of all work went into paying the debt back?' },
+    },
+    inspect: {
+      dev: G => fireInfo(G, 1), test: G => fireInfo(G, 2), gate: G => fireInfo(G, 3),
+      ops: G => fireInfo(G, 4) || detectInfo(G),
+    },
     goals: [
-      { label: 'Unplanned work ≤ 35%', kpi: 'unp', op: '<=', val: 35 },
-      { label: 'Tech debt ≤ 45', kpi: 'debt', op: '<=', val: 45 },
-      { label: 'Time to restore ≤ 0.8 days', kpi: 'mttr', op: '<=', val: .8 },
+      { label: 'Find where the fires come from', tip: 'Click a station while it is burning', test: G => !!G.disc.debtSlider, show: G => G.disc.debtSlider ? 'yes' : 'no' },
+      { label: 'Tech debt ≤ 45', reveal: G => !!G.disc.debtSlider, kpi: 'debt', op: '<=', val: 45 },
+      { label: 'Unplanned work ≤ 35%', reveal: G => !!G.disc.debtSlider, kpi: 'unp', op: '<=', val: 35 },
+      { label: 'Time to restore ≤ 0.8 days', reveal: G => !!G.disc.monitoring, kpi: 'mttr', op: '<=', val: .8 },
     ],
     events: [{
       day: 4, title: 'Feature blitz',
@@ -514,7 +577,7 @@ const LEVELS = [
     }],
     mentor: [
       { id: 'boss', who: 'boss', when: G => G.t > 1, text: 'Another outage?! Get a dedicated firefighting crew in here. Nobody touches the old systems, we have features to ship.' },
-      { id: 'a', when: G => G.t > .2, text: 'The feedback pipe is broken: you only hear about incidents when customers call. And where do all these fires come from?' },
+      { id: 'a', when: G => G.t > 1.2 && !G.disc.debtSlider, text: 'Fire after fire. Putting them out isn\'t enough. Click a station while it\'s burning: where do these fires come from?' },
       { id: 'b', when: G => G.t > 3 && G.debtShare < .15, text: 'Debt keeps rising and so do the fires. What share of your work goes into paying it down?' },
       { id: 'c', when: G => G.debtShare >= .2 && G.t > 1, text: 'About 20% for internal work. It feels slow at first. Watch the debt KPI over the next days.' },
     ],
@@ -538,9 +601,9 @@ const LEVELS = [
     hook: 'After an audit scare, the security officer insists on reviewing everything at the Change Gate. Every item now waits in line for a stamp, and changes still fail.',
     learn: ['Risk-based change management', 'Build security into daily work', 'Protect what actually matters'],
     days: 12, sla: 4, rate: 2.2, mix: { biz: .35, int: .15, chg: .5 }, constraint: 'gate',
-    risky: .45, riskyFail: .5, stdFail: .05, flags: { auditAll: true }, auditTime: .45,
+    risky: .45, riskyFail: .35, stdFail: .05, flags: { auditAll: true }, auditTime: .45,
     preload: { gate: 10, dev: 3, test: 2 },
-    debt: 15, fires: true, fireBase: .1, fireDebt: .015, fq: .5, cs: .03, budget: 8, patience: 70,
+    debt: 15, fires: true, fireBase: .1, fireDebt: .015, fq: .5, cs: .03, budget: 8, patience: 60, latePenalty: .5, incDrain: 3.5, wipDrain: { over: 12, rate: .5 },
     setup: G => { G.owned.kanban = true; G.flags.protectHero = true; },
     kpis: ['cfr', 'lead', 'thr', 'wip'],
     tools: ['preapprove', 'shiftLeft', 'cutScope', 'moreApprovers'],
@@ -549,10 +612,28 @@ const LEVELS = [
       { done: G => (G.toolUses.shiftLeft || 0) > 0, text: 'Build security into Dev: inspection at the end stayed slow and expensive.' },
       { done: G => (G.toolUses.cutScope || 0) > 0, text: 'Cut compliance scope: most audited items never mattered for compliance.' },
     ],
+    discover: {
+      preapprove: { when: G => G.seen.gateMix, late: 3.5,
+        say: 'Most of what waits at the gate is routine: the same safe changes, reviewed like brain surgery. Meanwhile the risky ones get the same quick stamp. What if routine changes didn\'t need a review at all?' },
+      shiftLeft: { after: 'preapprove', when: G => G.seen.gateAudit, late: 3,
+        say: 'Even without the routine changes, every item still sits through a full security audit at the very end. What if security was part of building it, not an inspection afterwards?' },
+      cutScope: { after: 'preapprove', when: G => G.seen.gateAudit && G.discT.shiftLeft != null && G.t > G.discT.shiftLeft + .6, late: 4,
+        say: 'And who decided that all of this needs an audit? Ask the business which systems really matter for compliance.' },
+    },
+    inspect: {
+      gate: G => {
+        const q = G.st[3].q, rout = q.filter(c => c.type === 'chg' && c.risk === 'std').length;
+        const risky = q.filter(c => c.risk === 'risky').length, other = q.filter(c => c.type !== 'chg').length;
+        if (!G.owned.preapprove) return { seen: q.length ? 'gateMix' : null,
+          html: `Waiting for a stamp: <b>${q.length}</b>. Routine standard changes: <b>${rout}</b>. Not even changes: <b>${other}</b>. Actually risky: <b>${risky}</b>. Every one gets the same review.` };
+        return { seen: 'gateAudit', html: `Routine changes skip the gate now. Each remaining item still gets a full <b>security audit</b> here at the end, about ${G.owned.shiftLeft ? 'a few hours' : 'half a day'} each.` };
+      },
+    },
     goals: [
-      { label: 'Change fail rate ≤ 10%', kpi: 'cfr', op: '<=', val: 10 },
-      { label: 'Lead time ≤ 4 days', kpi: 'lead', op: '<=', val: 4 },
-      { label: 'Throughput ≥ 1.9 / day', kpi: 'thr', op: '>=', val: 1.9 },
+      { label: 'Find out what the gate spends its time on', tip: 'Click the Change Gate', test: G => !!G.disc.preapprove, show: G => G.disc.preapprove ? 'yes' : 'no' },
+      { label: 'Change fail rate ≤ 10%', reveal: G => !!G.disc.preapprove, kpi: 'cfr', op: '<=', val: 10 },
+      { label: 'Lead time ≤ 4 days', reveal: G => !!G.disc.preapprove, kpi: 'lead', op: '<=', val: 4 },
+      { label: 'Throughput ≥ 1.9 / day', reveal: G => !!G.disc.preapprove, kpi: 'thr', op: '>=', val: 1.9 },
     ],
     events: [{
       day: 5, title: 'After the outage',
@@ -565,7 +646,7 @@ const LEVELS = [
     mentor: [
       { id: 'sec', who: 'security', when: G => G.t > .7, text: 'Every change gets the full review. No exceptions. If production breaks, it will not be because we skipped a signature.' },
       { id: 'sec2', who: 'security', when: G => G.t > 4 && G.st[3].q.length > 8, text: 'The approval queue is long because we are thorough. If you want it faster, give me more approvers.' },
-      { id: 'a', when: G => G.t > .2, text: 'The gate reviews every item the same way, routine or risky. Is all that reviewing making changes safer?' },
+      { id: 'a', when: G => G.t > 1.4 && !G.disc.preapprove, pulse: [3], text: 'The pile at the Change Gate keeps growing, and changes still fail. Click the gate: what is all that reviewing actually spent on?' },
       { id: 'b', when: G => G.stats.deploys.some(d => d.failed) && !G.owned.preapprove, text: 'A change failed even though it was approved. Did the approval actually look at the risk?' },
       { id: 'c', when: G => G.owned.preapprove && G.owned.shiftLeft && G.owned.cutScope, text: 'Security is now part of the flow instead of a wall at the end. That\'s how it should feel.' },
     ],
@@ -590,7 +671,7 @@ const LEVELS = [
     learn: ['First Way: flow, with small batches', 'Second Way: fast feedback', 'Third Way: learn through practice'],
     days: 12, sla: 3.5, rate: 2.5, mix: { biz: .45, int: .2, chg: .35 },
     risky: .25, riskyFail: .15, batch: 8, opsSetup: 1.0, heroProb: { ops: 1 },
-    debt: 25, fires: true, fireBase: .1, fireDebt: .015, fq: .5, cs: .03, budget: 12, patience: 70,
+    debt: 25, fires: true, fireBase: .1, fireDebt: .015, fq: .5, cs: .03, budget: 12, patience: 50, latePenalty: .5, wipDrain: { over: 7, rate: .5 },
     setup: G => { G.owned.kanban = true; G.flags.protectHero = true; },
     kpis: ['deploys', 'mttr', 'cfr', 'lead'],
     tools: ['deployAuto', 'batchSlider', 'autoTests', 'chaosDrill', 'skipTests'],
@@ -600,11 +681,29 @@ const LEVELS = [
       { done: G => (G.toolUses.autoTests || 0) > 0, text: 'Automated tests & telemetry: fast feedback cuts both failures and time to restore.' },
       { done: G => (G.toolUses.chaosDrill || 0) > 0, text: 'Chaos drills: practicing failure makes real incidents faster to fix.' },
     ],
+    discover: {
+      deployAuto: { when: G => G.seen.opsDeploy, late: 3,
+        say: 'A whole day of the hero, for every deploy. No wonder everyone waits for a big batch. What if a deploy took minutes and anyone could press the button?' },
+      autoTests: { when: G => G.seen.failCause, late: 5,
+        say: 'A deploy failed and nobody can say which change broke it, or when we\'ll even notice next time. How would you find defects before production, and spot incidents in minutes?' },
+      chaosDrill: { after: 'autoTests', when: G => G.stats.mttr.length > 0 && G.seen.st_ops, late: 3,
+        say: 'You fix incidents, but every one is a surprise. Firefighters practice. What if your team practiced failure on purpose?' },
+    },
+    inspect: {
+      ops: G => {
+        const last = G.stats.deploys[G.stats.deploys.length - 1];
+        if (last && last.failed && !G.owned.autoTests) return { seen: 'failCause',
+          html: `The last deploy shipped <b>${last.n} changes at once</b> and broke. Which one did it? Nobody knows. Tests caught only a fraction of the defects.` };
+        if (G.owned.deployAuto) return { html: `Deploys are automated: minutes instead of a day. Batch size: <b>${G.batch}</b>.` };
+        return { seen: 'opsDeploy', html: `Each deploy costs the hero about <b>a whole day</b> of setup, plus a bit per item. So work waits for a batch of <b>${G.batch}</b>.` };
+      },
+    },
     goals: [
-      { label: 'Deploy frequency ≥ 2 / day', kpi: 'deploys', op: '>=', val: 2 },
-      { label: 'Time to restore ≤ 0.6 days', kpi: 'mttr', op: '<=', val: .6 },
-      { label: 'Lead time ≤ 3.5 days', kpi: 'lead', op: '<=', val: 3.5 },
-      { label: 'Change fail rate ≤ 10%', kpi: 'cfr', op: '<=', val: 10 },
+      { label: 'Find out why deploys are so rare', tip: 'Click Ops / Deploy', test: G => !!G.disc.deployAuto, show: G => G.disc.deployAuto ? 'yes' : 'no' },
+      { label: 'Deploy frequency ≥ 2 / day', reveal: G => !!G.disc.deployAuto, kpi: 'deploys', op: '>=', val: 2 },
+      { label: 'Lead time ≤ 3.5 days', reveal: G => !!G.disc.deployAuto, kpi: 'lead', op: '<=', val: 3.5 },
+      { label: 'Change fail rate ≤ 10%', reveal: G => !!G.disc.autoTests, kpi: 'cfr', op: '<=', val: 10 },
+      { label: 'Time to restore ≤ 0.6 days', reveal: G => !!G.disc.autoTests, kpi: 'mttr', op: '<=', val: .6 },
     ],
     events: [{
       day: 4, title: 'Big-bang release',
@@ -616,7 +715,7 @@ const LEVELS = [
     }],
     mentor: [
       { id: 'boss', who: 'boss', when: G => G.t > 1, text: 'The competition ships daily. Testing is slowing us down. Can we just skip it for this release?' },
-      { id: 'a', when: G => G.t > .2, text: 'Look at Ops: items wait for a batch of 8, then the hero spends a whole day deploying them. What would make deploys boring?' },
+      { id: 'a', when: G => G.t > 1.2 && !G.disc.deployAuto, pulse: [4], text: 'The business wants to ship every day, and we ship about once a week. Click Ops / Deploy: what does a single deploy cost?' },
       { id: 'b', when: G => G.stats.deploys.length === 1, text: 'One deploy, many items, one long day. If it breaks, which item caused it?' },
       { id: 'c', when: G => computeKpis(G).deploys >= 2, text: 'Ship small, ship often. Each deploy is boring now, and that\'s the goal.' },
     ],
@@ -641,7 +740,7 @@ const chip = t => typeIcon(t, 'tchip');
 const TOUR = [
   { title: 'Your value stream', rect: [.5, 4.1, 21.3, 4.9], at: [11, 4.5, 0],
     text: 'This conveyor belt is your pipeline. Every crate is one piece of work. It travels from left to right: from a request at <b>Demand</b> to a happy <b>Customer</b>. Work only creates value once it arrives on the right.' },
-  { title: 'Demand', station: 0, at: [1.6, 1, 1],
+  { title: 'Demand', station: 0, at: [1.6, 1, 1], task: { text: 'Click the Demand desk to inspect it.', done: () => UI.selected === 0 },
     text: 'Requests from the business arrive here and wait in a pile until they are <b>released</b> onto the floor. Waiting here is cheap. Waiting half-done on the floor is expensive, as you\'ll learn.' },
   { title: 'Four kinds of work', rect: [.5, 4.1, 21.3, 4.9], at: [7, 4.5, 0],
     text: `The colour tells you the type of work:<br>${chip('biz')} Business project &nbsp; ${chip('int')} Internal IT project<br>${chip('chg')} Change &nbsp; ${chip('unp')} Unplanned work (burning crates that drop from the sky and jump the queue)` },
@@ -655,8 +754,8 @@ const TOUR = [
     text: 'Operations deploys the work to production and fights the fires. The orange worker with the ★ is the <b>hero</b>: the one person who knows how everything works. Keep an eye on them.' },
   { title: 'Customers', rect: [21.2, .7, 23, 6.7], at: [22, 2, 1],
     text: 'Delivered work reaches your customers. Each on-time delivery raises <b>business patience</b>. When an incident hits, the houses flash red and patience drains until it is fixed.' },
-  { title: 'Reading a station', station: 2, at: [9.5, 1, 1.4],
-    text: 'The <b>ring</b> above each station shows how busy it is: green is relaxed, red is overloaded. A <b>pile of crates</b> in front of a station is a queue: work that is waiting. Click any station to inspect it, including the wait-time curve.' },
+  { title: 'Reading a station', station: 2, at: [9.5, 1, 1.4], task: { text: 'Click the Test station and look at its wait-time curve.', done: () => UI.selected === 2 },
+    text: 'The <b>ring</b> above each station shows how busy it is: green is relaxed, red is overloaded. A <b>pile of crates</b> in front of a station is a queue: work that is waiting. Click a station to inspect it: the panel shows its queue and the wait-time curve.' },
   { title: 'Work in progress', rect: [2.2, 4.1, 18.6, 4.9], at: [10, 4.5, 0], wipPills: true,
     text: 'Every crate between Dev and Ops is <b>work in progress (WIP)</b>: started, but not finished yet. The labels above each station count it. More WIP doesn\'t mean more output, it means every item waits longer: <b>lead time ≈ WIP ÷ throughput</b>.' },
   { title: 'The feedback pipe', rect: [1, .1, 21.5, .5], at: [11, .3, 2.6],
