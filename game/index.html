@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow Factory</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="theme-dark">
+<canvas id="scene"></canvas>
+<canvas id="sceneSharp"></canvas>
+<div id="vignette"></div>
+
+<!-- Title screen -->
+<div id="title" class="title-screen">
+  <div class="title-card panel">
+    <div class="brand"><span class="logo"></span>Flow Factory</div>
+    <h1>Learn to make work flow.</h1>
+    <p class="lede">The core lessons of <em>The Phoenix Project</em>, played on an IT factory floor. Eight shifts, each one teaches one idea.</p>
+    <div id="levelGrid" class="level-grid"></div>
+    <div class="title-actions">
+      <button id="btnDeck" class="btn">Insight deck</button>
+      <button id="btnThemeTitle" class="btn ghost theme-btn"></button>
+      <button id="btnUnlock" class="link-btn">Unlock all shifts</button>
+    </div>
+  </div>
+</div>
+
+<!-- In-game HUD -->
+<div id="hud" class="hud hidden">
+  <header class="topbar panel">
+    <div class="tb-level"><span class="tb-num" id="tbNum"></span><div><b id="tbTitle"></b><small id="tbConcept"></small></div></div>
+    <div class="tb-meter">
+      <div class="lbl"><span>Day</span><b id="tbDay"></b></div>
+      <div class="bar"><i id="tbDayBar"></i></div>
+    </div>
+    <div class="pat-block" id="patBlock" data-tip="">
+      <div class="lbl"><span>Business patience <em>· shift fails at 0</em></span><b id="tbPat"></b></div>
+      <div class="pat-bar"><i id="tbPatBar"></i></div>
+      <div class="pat-sub" id="patSub"></div>
+      <div class="pat-fx" id="patFx"></div>
+    </div>
+    <div class="tb-budget" data-tip="Improvement budget: spend it on tools. You earn a little for every delivery."><span class="gem"></span><b id="tbBudget"></b></div>
+    <div class="tb-speed" id="speedBtns">
+      <button data-sp="0" title="Pause (Space)">❚❚</button>
+      <button data-sp="1" title="Normal speed (1)">1×</button>
+      <button data-sp="2" title="Fast (2)">2×</button>
+      <button data-sp="4" title="Faster (3)">4×</button>
+    </div>
+    <button class="tb-btn" id="btnBoard" title="Kanban board (B)">Board</button>
+    <button class="tb-btn theme-btn" id="btnTheme"></button>
+    <button class="tb-btn" id="btnExit">Menu</button>
+  </header>
+
+  <aside class="left-col">
+    <div class="goals panel">
+      <h3>Shift goals</h3>
+      <ul id="goals"></ul>
+      <div id="steps"></div>
+    </div>
+    <div class="toolbox panel">
+      <h3>Toolbox <span class="tb-hint">every tool is a bet</span></h3>
+      <div id="tools"></div>
+    </div>
+  </aside>
+  <aside class="right-col">
+    <div class="mentor panel">
+      <div class="m-head"><div class="face">M</div><div><div class="who">Mentor</div><div class="m-sub">asks, doesn't tell</div></div>
+        <button class="chip-btn" id="btnHint">Hint</button></div>
+      <div class="say" id="mentorSay"></div>
+    </div>
+    <div class="log-panel panel">
+      <h3>Decision log</h3>
+      <div id="log" class="log"></div>
+    </div>
+  </aside>
+
+  <div class="kpis" id="kpis"></div>
+  <div id="board" class="board panel hidden"></div>
+  <div id="stationPanel" class="station-panel panel hidden"></div>
+  <div id="targetHint" class="target-hint hidden"></div>
+  <div id="tour" class="tour panel hidden"></div>
+  <div id="pausedBadge" class="paused-badge hidden">Paused · Space to resume</div>
+</div>
+
+<div id="modal" class="modal hidden"><div class="modal-card panel" id="modalCard"></div></div>
+<div id="tip" class="tip hidden"></div>
+
+<script src="js/render.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/levels.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/feedback.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

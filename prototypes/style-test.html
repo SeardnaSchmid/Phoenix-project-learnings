@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow Factory Style Test</title>
+<style>
+  body.a {
+    --bg: linear-gradient(180deg, #f8f3eb 0%, #e9e0d1 100%);
+    --panel: rgba(255, 255, 255, .78);
+    --border: rgba(60, 50, 30, .08);
+    --text: #33394a;
+    --muted: #7d8291;
+    --accent: #ef8a3a;
+  }
+  body.b {
+    --bg: radial-gradient(ellipse at 50% 40%, #1e2a54 0%, #0b1022 75%);
+    --panel: rgba(16, 23, 46, .74);
+    --border: rgba(120, 170, 255, .18);
+    --text: #e3e9ff;
+    --muted: #8d98bf;
+    --accent: #ff9a3c;
+  }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  #c { position: fixed; inset: 0; }
+  .top {
+    position: fixed; top: 16px; left: 20px; right: 20px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .title h1 { font-size: 18px; margin: 0; font-weight: 700; }
+  .title p { margin: 3px 0 0; font-size: 13px; color: var(--muted); }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; backdrop-filter: blur(8px);
+  }
+  .toggle { display: flex; gap: 4px; padding: 4px; }
+  .toggle button {
+    border: 0; background: transparent; color: var(--text);
+    padding: 8px 14px; border-radius: 10px; cursor: pointer;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+  }
+  .toggle button.on { background: var(--accent); color: #fff; }
+  .mentor {
+    position: fixed; left: 20px; top: 76px; width: 300px;
+    display: flex; gap: 12px; padding: 12px 14px; align-items: flex-start;
+  }
+  .mentor .face {
+    flex: none; width: 38px; height: 38px; border-radius: 10px;
+    background: linear-gradient(135deg, #8e7cc3, #5b6fb5);
+    display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 14px;
+  }
+  .mentor .who { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .mentor .say { font-size: 13px; line-height: 1.4; margin-top: 2px; }
+  .hud { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; }
+  .kpi { padding: 10px 14px; width: 168px; }
+  .kpi .l { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); display: flex; justify-content: space-between; }
+  .kpi .v { font-size: 22px; font-weight: 700; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
+  .kpi .v small { font-size: 12px; font-weight: 600; color: var(--muted); margin-left: 3px; }
+  .kpi canvas { width: 100%; height: 28px; display: block; }
+</style>
+</head>
+<body class="a">
+<canvas id="c"></canvas>
+
+<div class="top">
+  <div class="title">
+    <h1 id="styleName">Style A · Daylight Studio</h1>
+    <p id="styleDesc">Soft pastels, warm light, calm and friendly</p>
+  </div>
+  <div class="toggle panel">
+    <button data-s="a" class="on">A · Daylight</button>
+    <button data-s="b">B · Night Shift</button>
+  </div>
+</div>
+
+<div class="mentor panel">
+  <div class="face">M</div>
+  <div>
+    <div class="who">Mentor</div>
+    <div class="say" id="mentorSay"></div>
+  </div>
+</div>
+
+<div class="hud">
+  <div class="kpi panel"><div class="l">Lead time <span>ⓘ</span></div><div class="v" id="k0">–</div><canvas id="s0"></canvas></div>
+  <div class="kpi panel"><div class="l">Throughput <span>ⓘ</span></div><div class="v" id="k1">–</div><canvas id="s1"></canvas></div>
+  <div class="kpi panel"><div class="l">Work in progress <span>ⓘ</span></div><div class="v" id="k2">–</div><canvas id="s2"></canvas></div>
+  <div class="kpi panel"><div class="l">Unplanned <span>ⓘ</span></div><div class="v" id="k3">–</div><canvas id="s3"></canvas></div>
+</div>
+
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const TW = 64, TH = 32, TZ = 34;
+const GW = 23, GH = 7;
+
+const STYLES = {
+  a: {
+    name: 'Style A · Daylight Studio', desc: 'Soft pastels, warm light, calm and friendly',
+    topL: .2, sideD: .16, glow: 0,
+    slab: '#d6ccbc', floorA: '#ede7dd', floorB: '#e6dfd3',
+    platform: '#f8f4ee', machine: '#9fabbc', screen: '#cfe8f7', desk: '#cfa57c',
+    belt: '#7d8696', stripe: 'rgba(255,255,255,.28)', pipe: '#bcc5d2', pulse: '#4fa3e3',
+    crate: { biz: '#5b8fd6', int: '#5cb98a', chg: '#f0b94d', unp: '#e5604f' },
+    skin: '#f1c7a5', hair: '#5b4636', pants: '#4a5468',
+    shirts: ['#6f8fbf', '#88b08f', '#c98f6b', '#9b86c4'],
+    hero: '#ef8a3a', officer: '#2f3a4f',
+    house: '#f6efe3', roof: '#d97b5f', win: '#a9d3ee',
+    rust: 'rgba(150,85,45,.45)', shadow: 'rgba(70,55,35,.17)',
+    text: '#33394a', pill: 'rgba(255,255,255,.85)', track: 'rgba(0,0,0,.08)',
+    good: '#4fae7b', warn: '#e8a23a', bad: '#e5604f', pool: null,
+  },
+  b: {
+    name: 'Style B · Night Shift', desc: 'Dark ops floor, neon accents, glowing work items',
+    topL: .14, sideD: .28, glow: 14,
+    slab: '#10162c', floorA: '#1d2646', floorB: '#1a2240',
+    platform: '#29345c', machine: '#3a4777', screen: '#5fd4ff', desk: '#4b4066',
+    belt: '#2c3457', stripe: 'rgba(120,200,255,.22)', pipe: '#34416d', pulse: '#4ff0ff',
+    crate: { biz: '#4ea3ff', int: '#2fe0a0', chg: '#ffd25a', unp: '#ff4f5e' },
+    skin: '#e8b99a', hair: '#2a2233', pants: '#2c3350',
+    shirts: ['#5a78c8', '#3fa58a', '#c0697f', '#8a6fd0'],
+    hero: '#ff9a3c', officer: '#0f1629',
+    house: '#2f3a66', roof: '#6a4fb0', win: '#ffd86b',
+    rust: 'rgba(200,110,60,.35)', shadow: 'rgba(0,0,0,.38)',
+    text: '#e3e9ff', pill: 'rgba(16,23,46,.85)', track: 'rgba(255,255,255,.1)',
+    good: '#2fe0a0', warn: '#ffc145', bad: '#ff4f5e', pool: 'rgba(90,150,255,.13)',
+  },
+};
+let S = STYLES.a;
+const faceCache = new Map();
+
+function setStyle(k) {
+  S = STYLES[k];
+  faceCache.clear();
+  document.body.className = k;
+  document.getElementById('styleName').textContent = S.name;
+  document.getElementById('styleDesc').textContent = S.desc;
+  document.querySelectorAll('.toggle button').forEach(b => b.classList.toggle('on', b.dataset.s === k));
+}
+document.querySelectorAll('.toggle button').forEach(b => b.onclick = () => setStyle(b.dataset.s));
+addEventListener('keydown', e => { if (e.key === '1') setStyle('a'); if (e.key === '2') setStyle('b'); });
+
+// ---------- drawing primitives ----------
+function rgb(c) { const n = parseInt(c.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function mix(c, t, a) { const A = rgb(c), B = rgb(t); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * a)).join(',')})`; }
+function faces(c) {
+  let f = faceCache.get(c);
+  if (!f) { f = { t: mix(c, '#ffffff', S.topL), l: c, r: mix(c, '#000000', S.sideD) }; faceCache.set(c, f); }
+  return f;
+}
+function P(x, y, z) { return [(x - y) * TW / 2, (x + y) * TH / 2 - z * TZ]; }
+function poly(pts, fill) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+  ctx.strokeStyle = fill; ctx.lineWidth = .6; ctx.stroke();
+}
+function glowOn(c, s = 1) { if (S.glow) { ctx.shadowColor = c; ctx.shadowBlur = S.glow * s; } }
+function glowOff() { ctx.shadowBlur = 0; }
+function box(x, y, z, w, d, h, c, glow) {
+  const x1 = x + w, y1 = y + d, z1 = z + h, f = faces(c);
+  if (glow) glowOn(c);
+  poly([P(x, y1, z), P(x1, y1, z), P(x1, y1, z1), P(x, y1, z1)], f.l);
+  poly([P(x1, y, z), P(x1, y1, z), P(x1, y1, z1), P(x1, y, z1)], f.r);
+  poly([P(x, y, z1), P(x1, y, z1), P(x1, y1, z1), P(x, y1, z1)], f.t);
+  if (glow) glowOff();
+}
+// quad on a front-facing (constant y) plane
+function frontQuad(xa, xb, y, za, zb, c, glow) {
+  if (glow) glowOn(c);
+  poly([P(xa, y, za), P(xb, y, za), P(xb, y, zb), P(xa, y, zb)], c);
+  if (glow) glowOff();
+}
+function shadowEll(x, y, z, r, a = 1) {
+  const [sx, sy] = P(x, y, z);
+  ctx.globalAlpha = a;
+  ctx.beginPath(); ctx.ellipse(sx, sy, r * TW * .5, r * TH * .5, 0, 0, Math.PI * 2);
+  ctx.fillStyle = S.shadow; ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+// ---------- simulation ----------
+const BELT_Y = 4.35, BELT_Z = .2, SPEED = 1.7, LAYERS = 4;
+const ST = [
+  { name: 'Demand', x: 1.6, inbox: true },
+  { name: 'Dev', x: 5.5, t: .8, workers: [[-.45, '0'], [.45, '1']] },
+  { name: 'Test', x: 9.5, t: .95, workers: [[0, '2']], debt: true },
+  { name: 'Change Gate', x: 13.5, t: .55, gate: true },
+  { name: 'Ops / Deploy', x: 17.5, t: 1.2, hero: true },
+];
+ST.forEach(s => { s.q = []; s.cur = null; s.timer = 0; s.u = .5; });
+let crates = [], sparks = [], delivered = [];
+let T = 0, spawnT = 0, unpT = 4;
+const hero = { x: 17.5, y: 2.3, path: [], state: 'home', timer: 6, bubble: 0 };
+
+function slot(s, i) {
+  const col = Math.floor(i / LAYERS), layer = i % LAYERS;
+  const wob = layer >= 2 ? Math.sin(T * 3 + i) * .02 * layer : 0;
+  return [s.x - .75 - col * .4 + wob, BELT_Y, BELT_Z + layer * .32];
+}
+function tailX(i) {
+  if (i >= ST.length) return 21.0;
+  return slot(ST[i], ST[i].q.length)[0];
+}
+function lerp(a, b, k) { return a + (b - a) * k; }
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function pickType() { const r = Math.random(); return r < .45 ? 'biz' : r < .7 ? 'int' : 'chg'; }
+
+function update(dt) {
+  T += dt;
+  const wip = crates.length;
+
+  spawnT -= dt;
+  if (spawnT <= 0 && wip < 34) {
+    spawnT = 1.35;
+    crates.push({ type: pickType(), x: 1.45, y: 2.85, z: .5, st: 1, state: 'move', born: T });
+  }
+  unpT -= dt;
+  if (unpT <= 0) {
+    unpT = rnd(4.5, 7.5);
+    const i = 1 + Math.floor(Math.random() * 4);
+    const lo = ST[i - 1].x + .6, hi = Math.max(lo + .2, tailX(i) - .3);
+    crates.push({ type: 'unp', x: rnd(lo, hi), y: BELT_Y, z: 7, vz: 0, st: i, state: 'fall', born: T });
+  }
+
+  // hero: periodically pulled away to another station
+  const H = hero;
+  if (H.state === 'home') {
+    H.timer -= dt;
+    if (H.timer <= 0) { H.state = 'out'; H.bubble = 2; H.path = [[17.5, 3.75], [6.2, 3.75], [6.2, 2.3]]; }
+  } else if (H.state === 'helping') {
+    H.timer -= dt;
+    if (H.timer <= 0) { H.state = 'back'; H.path = [[6.2, 3.75], [17.5, 3.75], [17.5, 2.3]]; }
+  }
+  if (H.path.length) {
+    const [tx, ty] = H.path[0], dx = tx - H.x, dy = ty - H.y, d = Math.hypot(dx, dy), step = 2.8 * dt;
+    if (d <= step) { H.x = tx; H.y = ty; H.path.shift(); }
+    else { H.x += dx / d * step; H.y += dy / d * step; }
+    if (!H.path.length) {
+      if (H.state === 'out') { H.state = 'helping'; H.timer = 2.2; }
+      else if (H.state === 'back') { H.state = 'home'; H.timer = rnd(7, 10); }
+    }
+  }
+  H.bubble = Math.max(0, H.bubble - dt);
+  const heroHome = H.state === 'home';
+
+  // stations
+  ST.forEach((s, i) => {
+    if (s.inbox) return;
+    const canWork = !s.hero || heroHome;
+    if (!s.cur && s.q.length && canWork) {
+      s.cur = s.q.shift();
+      s.cur.state = 'proc';
+      s.cur.stn = i;
+      s.timer = s.t * rnd(.8, 1.2) * (s.cur.type === 'unp' ? 1.4 : 1);
+      s.cur.dur = s.timer;
+    }
+    if (s.cur && canWork) {
+      s.timer -= dt;
+      if (s.timer <= 0) {
+        const c = s.cur; s.cur = null;
+        c.state = 'move'; c.st = i + 1; c.x = s.x + .35;
+      }
+    }
+    const busy = s.hero ? (s.cur || !heroHome) : !!s.cur;
+    s.u += ((busy ? 1 : 0) - s.u) * Math.min(1, dt * .25);
+  });
+
+  // crates
+  for (const c of crates) {
+    if (c.state === 'fall') {
+      c.vz -= 18 * dt; c.z += c.vz * dt;
+      if (c.z <= BELT_Z) { c.z = BELT_Z; c.state = 'move'; for (let k = 0; k < 8; k++) sparks.push(spark(c.x + .15, c.y + .15, .3, '#ff8a3d')); }
+    } else if (c.state === 'move') {
+      c.x += SPEED * dt;
+      c.y = lerp(c.y, BELT_Y, Math.min(1, dt * 8));
+      c.z = lerp(c.z, BELT_Z, Math.min(1, dt * 8));
+      if (c.x >= tailX(c.st) - .02) {
+        if (c.st >= ST.length) {
+          c.state = 'done';
+          delivered.push({ t: T, lead: T - c.born });
+          for (let k = 0; k < 6; k++) sparks.push(spark(21.3, BELT_Y + .15, .4, S.crate[c.type]));
+        } else {
+          ST[c.st].q.push(c); c.state = 'queue';
+        }
+      }
+    } else if (c.state === 'proc') {
+      const s = ST[c.stn];
+      const tgt = s.gate ? [s.x - .15, BELT_Y, BELT_Z] : [s.x - .15, 2.85, .5];
+      const k = Math.min(1, dt * 7);
+      c.x = lerp(c.x, tgt[0], k); c.y = lerp(c.y, tgt[1], k); c.z = lerp(c.z, tgt[2], k);
+    }
+  }
+  ST.forEach(s => s.q.forEach((c, i) => {
+    const [tx, ty, tz] = slot(s, i), k = Math.min(1, dt * 6);
+    c.x = lerp(c.x, tx, k); c.y = lerp(c.y, ty, k); c.z = lerp(c.z, tz, k);
+  }));
+  crates = crates.filter(c => c.state !== 'done');
+
+  for (const p of sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.vz -= 6 * dt; p.life -= dt; }
+  sparks = sparks.filter(p => p.life > 0);
+  delivered = delivered.filter(d => d.t > T - 40);
+}
+function spark(x, y, z, col) {
+  return { x, y, z, vx: rnd(-1, 1), vy: rnd(-1, 1), vz: rnd(1.5, 3), life: rnd(.5, .9), col };
+}
+
+// ---------- scene ----------
+function drawFloor() {
+  box(0, 0, -.5, GW, GH, .5, S.slab);
+  for (let i = 0; i < GW; i++) for (let j = 0; j < GH; j++)
+    poly([P(i, j, 0), P(i + 1, j, 0), P(i + 1, j + 1, 0), P(i, j + 1, 0)], (i + j) % 2 ? S.floorA : S.floorB);
+
+  if (S.pool) {
+    for (const s of ST) {
+      const [sx, sy] = P(s.x, 2.6, 0);
+      const alarm = s.hero && s.q.length > 8;
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, 150);
+      g.addColorStop(0, alarm ? `rgba(255,70,90,${.12 + .08 * Math.sin(T * 5)})` : S.pool);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(sx, sy, 150, 75, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // platforms
+  for (const s of ST) if (!s.gate) box(s.x - 1.3, .9, 0, 2.6, 2.7, .12, S.platform);
+  box(13.9, 1.6, 0, 1.2, 1.4, .12, S.platform);
+
+  // tech debt: rust stains and cracks
+  const t = ST[2];
+  ctx.fillStyle = S.rust;
+  for (const [dx, dy, r] of [[-.8, 1.3, 11], [.7, 3.2, 8], [.9, 1.5, 6]]) {
+    const [sx, sy] = P(t.x + dx, dy, .12);
+    ctx.beginPath(); ctx.ellipse(sx, sy, r, r / 2, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.strokeStyle = S.rust; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  const c0 = P(t.x - 1.1, 2.4, .12), c1 = P(t.x - .6, 2.2, .12), c2 = P(t.x - .4, 2.6, .12), c3 = P(t.x + .1, 2.5, .12);
+  ctx.moveTo(...c0); ctx.lineTo(...c1); ctx.lineTo(...c2); ctx.lineTo(...c3); ctx.stroke();
+
+  // belt
+  box(.6, 4.25, 0, 20.6, .5, .2, S.belt);
+  const off = (T * SPEED) % .5;
+  ctx.strokeStyle = S.stripe; ctx.lineWidth = 1.5;
+  for (let x = .6 + off; x < 21.2; x += .5) {
+    const a = P(x, 4.25, .2), b = P(x, 4.75, .2);
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+  }
+
+  // feedback pipe (right -> left), behind everything
+  for (let x = 2; x <= 20; x += 4) box(x, .25, 0, .12, .12, 2.5, S.pipe);
+  box(1, .2, 2.5, 20.5, .22, .22, S.pipe);
+  glowOn(S.pulse, 1.2);
+  ctx.fillStyle = S.pulse;
+  for (let k = 0; k < 6; k++) {
+    const px = 21.3 - ((T * 3 + k * 3.4) % 20.3);
+    const [sx, sy] = P(px, .31, 2.72);
+    ctx.beginPath(); ctx.ellipse(sx, sy, 5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  glowOff();
+}
+
+function person(x, y, z, o) {
+  const b = o.bob || 0;
+  shadowEll(x, y, z, .32);
+  box(x - .09, y - .06, z, .18, .12, .24, S.pants);
+  box(x - .12, y - .08, z + .24 + b, .24, .16, .27, o.shirt);
+  box(x - .1, y - .1, z + .51 + b, .2, .2, .19, S.skin);
+  ctx.fillStyle = '#2a2430';
+  for (const ex of [-.045, .045]) {
+    const [sx, sy] = P(x + ex, y + .1, z + .61 + b);
+    ctx.fillRect(sx - 1, sy - 1.5, 2, 3);
+  }
+  if (o.cap) {
+    box(x - .105, y - .105, z + .68 + b, .21, .21, .07, o.cap);
+    box(x - .105, y + .1, z + .68 + b, .21, .08, .025, o.cap);
+  } else {
+    box(x - .105, y - .105, z + .68 + b, .21, .21, .05, S.hair);
+  }
+  if (o.star) {
+    const [sx, sy] = P(x, y, z + 1.05 + b);
+    glowOn(S.hero, 1.2);
+    ctx.fillStyle = S.hero;
+    ctx.beginPath();
+    for (let k = 0; k < 10; k++) {
+      const r = k % 2 ? 2.6 : 6.5, a = -Math.PI / 2 + k * Math.PI / 5 + T;
+      ctx.lineTo(sx + Math.cos(a) * r, sy + Math.sin(a) * r * .8);
+    }
+    ctx.closePath(); ctx.fill(); glowOff();
+  }
+}
+
+function crate(c) {
+  const col = S.crate[c.type];
+  if (c.state === 'fall') shadowEll(c.x + .15, c.y + .15, BELT_Z, .35, Math.max(.2, 1 - c.z / 7));
+  box(c.x, c.y, c.z, .3, .3, .3, col, true);
+  const a = P(c.x + .15, c.y, c.z + .3), b = P(c.x + .15, c.y + .3, c.z + .3);
+  ctx.strokeStyle = mix(col, '#000000', .22); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+  if (c.type === 'unp') flame(c.x + .15, c.y + .15, c.z + .3);
+  if (c.state === 'proc') {
+    const s = ST[c.stn], pr = 1 - Math.max(0, s.timer) / c.dur;
+    const [sx, sy] = P(c.x + .15, c.y + .15, c.z + .65);
+    ctx.fillStyle = S.track; ctx.fillRect(sx - 12, sy, 24, 4);
+    ctx.fillStyle = col; ctx.fillRect(sx - 12, sy, 24 * pr, 4);
+  }
+}
+function flame(x, y, z) {
+  const [sx, sy] = P(x, y, z), f = Math.sin(T * 22 + x * 7) * 2.5;
+  glowOn('#ff7a2d', 1.4);
+  ctx.fillStyle = '#ff7a2d';
+  ctx.beginPath(); ctx.moveTo(sx - 7, sy); ctx.lineTo(sx + 7, sy); ctx.lineTo(sx + f, sy - 17 - f); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ffd45a';
+  ctx.beginPath(); ctx.moveTo(sx - 3.5, sy); ctx.lineTo(sx + 3.5, sy); ctx.lineTo(sx + f * .6, sy - 9); ctx.closePath(); ctx.fill();
+  glowOff();
+}
+
+function house(x, y) {
+  const w = .9, z1 = .6;
+  box(x, y, 0, w, w, z1, S.house);
+  frontQuad(x + .12, x + .34, y + w, .25, .45, S.win, true);
+  frontQuad(x + .52, x + .72, y + w, 0, .4, mix(S.roof, '#000000', .2));
+  const ap = P(x + w / 2, y + w / 2, z1 + .45);
+  const f = faces(S.roof);
+  poly([P(x + w, y, z1), P(x + w, y + w, z1), ap], f.r);
+  poly([P(x, y + w, z1), P(x + w, y + w, z1), ap], f.l);
+}
+
+function buildDrawables() {
+  const D = [];
+  const add = (k, f) => D.push({ k, f });
+  const heroHome = hero.state === 'home';
+
+  for (const s of ST) {
+    const x = s.x;
+    if (s.inbox) {
+      add(x + 1.5, () => box(x - 1, 1.15, .12, .5, .5, 1.1, S.machine));
+      add(x + 2.3, () => person(x, 2.3, .12, { shirt: S.shirts[3], bob: Math.abs(Math.sin(T * 4)) * .02 }));
+      add(x + 3, () => {
+        box(x - .6, 2.8, .12, 1.2, .45, .38, S.desk);
+        for (let k = 0; k < 4; k++) box(x + .1, 2.86, .5 + k * .05, .32, .3, .04, k % 2 ? '#f2f2f2' : '#e6e6e6');
+      });
+    } else if (s.gate) {
+      add(x + 4.0, () => box(x - .1, 3.95, 0, .2, .2, 1.3, S.machine));
+      add(x + 5.05, () => box(x - .1, 4.85, 0, .2, .2, 1.3, S.machine));
+      add(x + 20, () => {
+        box(x - .15, 3.95, 1.3, .3, 1.1, .16, S.machine);
+        const scan = s.cur ? .6 + .4 * Math.sin(T * 14) : .25;
+        ctx.globalAlpha = scan;
+        frontQuad(x - .12, x + .12, 5.05, 1.22, 1.29, S.bad, !!s.cur);
+        ctx.globalAlpha = 1;
+      });
+      add(x + 1 + 2.1, () => box(x + .6, 1.8, .12, .7, .6, .8, S.machine));
+      add(x + 1 + 3.7, () => person(x + .65, 3.7, .12, { shirt: S.officer, cap: S.officer }));
+    } else {
+      if (s.hero) {
+        add(x + 1.3, () => {
+          box(x - .7, 1.1, .12, .55, .5, 1.45, S.machine);
+          for (let k = 0; k < 5; k++) {
+            const on = Math.sin(T * 6 + k * 1.7) > 0;
+            frontQuad(x - .6, x - .5, 1.6, .35 + k * .22, .41 + k * .22, on ? S.good : S.track, on);
+          }
+          const alarm = s.q.length > 8 && Math.sin(T * 8) > 0;
+          box(x - .5, 1.25, 1.57, .15, .15, .12, alarm ? S.bad : mix(S.bad, '#808080', .6), alarm);
+        });
+      } else {
+        add(x + 1.3, () => {
+          box(x - .9, 1.15, .12, .75, .45, .85, S.machine);
+          frontQuad(x - .82, x - .23, 1.6, .45, .85, S.screen, true);
+        });
+      }
+      for (const [dx, si] of s.workers || []) {
+        add(x + dx + 2.3, () => person(x + dx, 2.3, .12, {
+          shirt: S.shirts[+si], bob: s.cur ? Math.abs(Math.sin(T * 9 + dx * 5)) * .03 : 0,
+        }));
+      }
+      add(x + 3.05, () => box(x - .75, 2.8, .12, 1.5, .45, .38, S.desk));
+    }
+  }
+
+  // hero worker
+  const walking = hero.path.length > 0;
+  const hz = hero.y < 3.6 ? .12 : 0;
+  add(hero.x + hero.y, () => {
+    person(hero.x, hero.y, hz, {
+      shirt: S.hero, star: true,
+      bob: walking ? Math.abs(Math.sin(T * 12)) * .06 : (heroHome && ST[4].cur ? Math.abs(Math.sin(T * 10)) * .03 : 0),
+    });
+  });
+
+  for (const c of crates) add(c.x + .15 + c.y + .15 + c.z * .05, () => crate(c));
+  add(21.6 + .9 + .9 + .45, () => house(21.6, .9));
+  add(21.8 + 2.3 + .9, () => house(21.8, 2.3));
+  add(21.7 + 5.4 + .9, () => house(21.7, 5.4));
+
+  D.sort((a, b) => a.k - b.k);
+  return D;
+}
+
+function drawOverlays() {
+  for (const s of ST) {
+    const [sx, sy] = s.gate ? P(s.x, 4.5, 2.4) : P(s.x, 2, 2.5);
+    if (!s.inbox) {
+      const u = s.u, col = u < .7 ? S.good : u < .9 ? S.warn : S.bad;
+      ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.strokeStyle = S.track;
+      ctx.beginPath(); ctx.arc(sx, sy, 15, 0, Math.PI * 2); ctx.stroke();
+      glowOn(col);
+      ctx.strokeStyle = col;
+      ctx.beginPath(); ctx.arc(sx, sy, 15, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * u); ctx.stroke();
+      glowOff();
+      ctx.fillStyle = S.text; ctx.font = '700 10px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(Math.round(u * 100) + '%', sx, sy + .5);
+    }
+    pill(s.name, sx, s.inbox ? sy : sy + 28);
+  }
+  const [cx, cy] = P(22.2, 3.6, 1.9);
+  pill('Customers', cx, cy);
+
+  if (hero.bubble > 0) bubble('!', hero.x, hero.y, 1.3);
+  if (hero.state === 'helping') bubble('…', hero.x, hero.y, 1.3);
+
+  for (const p of sparks) {
+    const [sx, sy] = P(p.x, p.y, p.z);
+    ctx.globalAlpha = Math.min(1, p.life * 2);
+    glowOn(p.col); ctx.fillStyle = p.col;
+    ctx.beginPath(); ctx.moveTo(sx, sy - 3); ctx.lineTo(sx + 3, sy); ctx.lineTo(sx, sy + 3); ctx.lineTo(sx - 3, sy); ctx.fill();
+    glowOff();
+  }
+  ctx.globalAlpha = 1;
+}
+function pill(text, x, y) {
+  ctx.font = '600 11px Inter, system-ui, sans-serif';
+  const w = ctx.measureText(text).width + 16;
+  ctx.fillStyle = S.pill;
+  ctx.beginPath(); ctx.roundRect(x - w / 2, y - 10, w, 20, 10); ctx.fill();
+  ctx.fillStyle = S.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, y + .5);
+}
+function bubble(t, x, y, z) {
+  const [sx, sy] = P(x, y, z);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.roundRect(sx - 11, sy - 30, 22, 20, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(sx - 4, sy - 11); ctx.lineTo(sx + 4, sy - 11); ctx.lineTo(sx, sy - 5); ctx.fill();
+  ctx.fillStyle = '#e5604f'; ctx.font = '800 13px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(t, sx, sy - 20);
+}
+
+// ---------- KPIs ----------
+const DAY = 6; // sim seconds per in-game day
+const series = [[], [], [], []];
+let sampleT = 0;
+function sampleKpis() {
+  const recent = delivered.slice(-12);
+  const lead = recent.length ? recent.reduce((a, d) => a + d.lead, 0) / recent.length / DAY : 0;
+  const thr = delivered.filter(d => d.t > T - 30).length / (30 / DAY);
+  const wip = crates.length;
+  const unp = wip ? crates.filter(c => c.type === 'unp').length / wip * 100 : 0;
+  const vals = [lead, thr, wip, unp];
+  vals.forEach((v, i) => { series[i].push(v); if (series[i].length > 60) series[i].shift(); });
+  document.getElementById('k0').innerHTML = lead.toFixed(1) + '<small>days</small>';
+  document.getElementById('k1').innerHTML = thr.toFixed(1) + '<small>/ day</small>';
+  document.getElementById('k2').innerHTML = wip + '<small>items</small>';
+  document.getElementById('k3').innerHTML = Math.round(unp) + '<small>%</small>';
+  const cols = [S.crate.biz, S.crate.int, S.crate.chg, S.crate.unp];
+  series.forEach((sr, i) => spark2(document.getElementById('s' + i), sr, cols[i]));
+}
+function spark2(c, data, col) {
+  const dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  if (data.length < 2) return;
+  const mx = Math.max(...data, 1e-6) * 1.15;
+  g.beginPath();
+  data.forEach((v, i) => { const x = i / 59 * w, y = h - v / mx * (h - 2) - 1; i ? g.lineTo(x, y) : g.moveTo(x, y); });
+  g.strokeStyle = col; g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
+  g.lineTo((data.length - 1) / 59 * w, h); g.lineTo(0, h); g.closePath();
+  g.globalAlpha = .15; g.fillStyle = col; g.fill(); g.globalAlpha = 1;
+}
+
+const LINES = [
+  'Look where the crates pile up. Is that the busiest station, or the one that matters most?',
+  'Every burning crate is work nobody planned. Where do you think it comes from?',
+  'Your star engineer just left their station. Watch what happens to the queue behind them.',
+  'Notice the rusty station. Debt you never pay back comes back as fire.',
+];
+let lineI = 0;
+function nextLine() { document.getElementById('mentorSay').textContent = LINES[lineI++ % LINES.length]; }
+nextLine(); setInterval(nextLine, 7000);
+
+// ---------- loop ----------
+let W, Hh, dpr, scale, ox, oy;
+function resize() {
+  dpr = devicePixelRatio || 1; W = innerWidth; Hh = innerHeight;
+  cv.width = W * dpr; cv.height = Hh * dpr;
+  cv.style.width = W + 'px'; cv.style.height = Hh + 'px';
+  const minX = -GH * TW / 2, maxX = GW * TW / 2;
+  const minY = -3 * TZ, maxY = (GW + GH) * TH / 2 + .5 * TZ;
+  const topPad = 70, botPad = 120;
+  scale = Math.min((W - 60) / (maxX - minX), (Hh - topPad - botPad) / (maxY - minY));
+  ox = W / 2 - (minX + maxX) / 2 * scale;
+  oy = topPad + (Hh - topPad - botPad) / 2 - (minY + maxY) / 2 * scale;
+}
+addEventListener('resize', resize); resize();
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  update(dt);
+  sampleT -= dt;
+  if (sampleT <= 0) { sampleT = .5; sampleKpis(); }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
+  drawFloor();
+  for (const d of buildDrawables()) d.f();
+  drawOverlays();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
