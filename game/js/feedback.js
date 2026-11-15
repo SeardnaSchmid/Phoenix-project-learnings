@@ -342,8 +342,7 @@ function compareChart(c, G, H, key) {
 function debriefCompareHtml(G, H) {
   const keys = [...G.L.kpis, 'patience'];
   const ghostNote = H.ended === 'failed' ? ` The untouched factory lost the business on day ${H.t.toFixed(1)}.` : '';
-  return `<div class="section-h">You vs. the untouched factory</div>
-    <p class="muted" style="font-size:13px">Same shift, same random events, same event choices, but no toolbox actions. <span class="leg you"></span>you <span class="leg ghost"></span>untouched <span class="leg mk"></span>your decisions.${ghostNote}</p>
+  return `<p class="muted" style="font-size:13px">Same shift, same random events, same event choices, but no toolbox actions. <span class="leg you"></span>you <span class="leg ghost"></span>untouched <span class="leg mk"></span>your decisions.${ghostNote}</p>
     <div class="cmp-grid">${keys.map(k => {
       const m = kmeta(k), you = lastVal(G.series[k]), gh = lastVal(H.series[k]);
       const f = v => v == null ? '–' : m.fmt(v);
@@ -366,12 +365,60 @@ function debriefDecisionsHtml(G) {
       ${d.why ? `<div class="why">${esc(d.why)}</div>` : ''}
       ${d.lag && !d.trap && d.measured !== 'helped' ? `<div class="why"><b>Why it didn't show yet:</b> ${esc(d.lag)}</div>` : ''}</div></div>`;
   }).join('');
-  return `<div class="section-h">Your decisions</div>` + (list.length ? `<div class="timeline">${rows}</div>`
+  return (list.length ? `<div class="timeline">${rows}</div>`
     : `<p class="muted">You made no decisions this shift.${G.L.tools.length ? ' The comparison above shows exactly what doing nothing looks like.' : ''}</p>`);
 }
 
 function debriefMissedHtml(G) {
   const missed = (G.L.missed || []).filter(m => !m.done(G));
-  if (!missed.length) return (G.L.missed || []).length ? `<div class="section-h">Missed opportunities</div><p class="muted">None. You used every key lever of this shift.</p>` : '';
-  return `<div class="section-h">Missed opportunities</div><ul class="missed">${missed.map(m => `<li>${esc(m.text)}</li>`).join('')}</ul>`;
+  if (!missed.length) return (G.L.missed || []).length ? `<p class="muted">None. You used every key lever of this shift.</p>` : '';
+  return `<ul class="missed">${missed.map(m => `<li>${esc(m.text)}</li>`).join('')}</ul>`;
+}
+
+// ---------- debrief scorecard: one clear meaning per colour ----------
+// Green = better than the untouched factory (or goal met), red = worse (or missed).
+const KPI_DIR = { lead: -1, thr: 1, wip: -1, unp: -1, debt: -1, cfr: -1, deploys: 1, mttr: -1, patience: 1 };
+function scoreRows(G, H, res) {
+  const rows = [];
+  for (const k of [...G.L.kpis, 'patience']) {
+    const m = kmeta(k), you = lastVal(G.series[k]), gh = H ? lastVal(H.series[k]) : null;
+    const gi = G.L.goals.findIndex(g => g.kpi === k);
+    let cmp = null;
+    if (H && you != null && gh != null) {
+      const d = (you - gh) * KPI_DIR[k];
+      cmp = Math.abs(you - gh) < (KPI_SCALE[k] ?? 1) ? 0 : d > 0 ? 1 : -1;
+    }
+    rows.push({ label: m.label, unit: m.unit, you: you == null ? '–' : m.fmt(you), gh: gh == null ? '–' : m.fmt(gh), cmp,
+      goal: gi >= 0 ? { met: res[gi].met, text: (G.L.goals[gi].op === '<=' ? '≤ ' : '≥ ') + m.fmt(G.L.goals[gi].val) } : null });
+  }
+  return rows;
+}
+function debriefScoreHtml(G, H, res) {
+  const rows = scoreRows(G, H, res);
+  const other = G.L.goals.map((g, i) => ({ g, r: res[i] })).filter(x => !x.g.kpi);
+  const better = rows.filter(r => r.cmp === 1).length, worse = rows.filter(r => r.cmp === -1).length;
+  const headline = !H ? '' : better > worse
+    ? `You beat the untouched factory on <b>${better} of ${rows.length}</b> numbers.`
+    : better === worse ? `About as good as doing nothing: <b>${better} better, ${worse} worse</b> than the untouched factory.`
+      : `Doing nothing would have been better on <b>${worse} of ${rows.length}</b> numbers.`;
+  const cmpChip = c => c == null ? '' : c > 0 ? '<span class="sc-chip good">▲ better</span>' : c < 0 ? '<span class="sc-chip bad">▼ worse</span>' : '<span class="sc-chip">≈ same</span>';
+  return `${headline ? `<p class="sc-head">${headline}</p>` : ''}
+    <div class="score ${H ? '' : 'no-ghost'}">
+      <div class="sc-row sc-th"><span></span><span>You</span>${H ? '<span>Untouched</span><span></span>' : ''}<span>Goal</span></div>
+      ${rows.map(r => `<div class="sc-row"><span class="sc-l">${esc(r.label)}</span><span class="sc-you">${r.you}<small>${esc(r.unit)}</small></span>
+        ${H ? `<span class="sc-gh">${r.gh}</span><span>${cmpChip(r.cmp)}</span>` : ''}
+        <span>${r.goal ? `<span class="sc-goal ${r.goal.met ? 'good' : 'bad'}">${r.goal.met ? '✓' : '✗'} ${r.goal.text}</span>` : ''}</span></div>`).join('')}
+      ${other.map(x => `<div class="sc-row"><span class="sc-l">${esc(x.g.label)}</span><span class="sc-you">${esc(x.r.val)}</span>${H ? '<span></span><span></span>' : ''}
+        <span><span class="sc-goal ${x.r.met ? 'good' : 'bad'}">${x.r.met ? '✓ done' : '✗ missed'}</span></span></div>`).join('')}
+    </div>
+    <p class="sc-legend"><span class="good">Green</span> = better than doing nothing, or goal met. <span class="bad">Red</span> = worse, or goal missed.</p>`;
+}
+function decisionSummary(G) {
+  const n = { good: 0, bad: 0, neutral: 0 };
+  for (const d of G.decisions) { const v = VERDICT[d.verdict]; if (v && n[v.cls] != null) n[v.cls]++; }
+  const parts = [];
+  if (n.good) parts.push(`<span class="sc-chip good">${n.good} helped</span>`);
+  if (n.bad) parts.push(`<span class="sc-chip bad">${n.bad} hurt or trap</span>`);
+  if (n.neutral) parts.push(`<span class="sc-chip">${n.neutral} no clear effect</span>`);
+  return parts.join(' ');
 }

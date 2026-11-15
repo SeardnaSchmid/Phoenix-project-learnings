@@ -104,7 +104,7 @@ function showBanner(kicker, title, sub, ms) {
 let calloutTimer = 0;
 function showCallout({ kpi, title, text }) {
   const card = $('#kv-' + kpi)?.closest('.kpi'), c = $('#callout');
-  if (!card || UI.screen !== 'game') return;
+  if (!card || UI.screen !== 'game' || UI.modal) return;
   const v = computeKpis(UI.G)[kpi];
   c.innerHTML = `<b>${esc(title)}${v != null ? `: ${Math.round(v)}` : ''}</b><p>${esc(text)}</p><small>click to dismiss</small>`;
   c.classList.remove('hidden');
@@ -695,6 +695,8 @@ function renderBoard() {
 // ---------- modals ----------
 function openModal(html, wide) {
   UI.modal = true;
+  $('#callout').classList.add('hidden');
+  $('#banner').classList.add('hidden');
   const card = $('#modalCard');
   card.className = 'modal-card panel' + (wide ? ' wide' : '');
   card.innerHTML = html;
@@ -788,25 +790,33 @@ function showDebrief() {
   }
   const H = UI.ghost;
   const hasNext = L.id + 1 < LEVELS.length;
+  const decs = L.tutorial || L.tour ? '' : debriefDecisionsHtml(G);
+  const missed = debriefMissedHtml(G), nMissed = (L.missed || []).filter(m => !m.done(G)).length;
   const card = openModal(`
     <div class="eyebrow">Shift ${L.id} · ${esc(L.title)}</div>
     <h2>${ok ? 'Shift complete' : 'The business lost patience'}</h2>
-    ${ok ? `<div class="big-stars">${starHtml(stars)}</div>` : `<p>Too many late deliveries and open incidents. Try again. The mentor's hints point the way.</p>`}
-    <ul class="res-list">${res.map(r => `<li><span class="${r.met ? 'ok' : 'no'}">${r.met ? '✓' : '✗'}</span>${esc(r.label)}<span class="gv">${esc(r.val)}</span></li>`).join('')}</ul>
-    ${H ? debriefCompareHtml(G, H) : ''}
-    ${L.tutorial || L.tour ? '' : debriefDecisionsHtml(G)}
-    ${debriefMissedHtml(G)}
-    ${ok ? `<div class="section-h">Reflect</div>
-      <p><b>${esc(L.reflection.q)}</b></p>
+    ${ok ? `<div class="big-stars">${starHtml(stars)}</div>` : `<p>Too many late deliveries and open incidents on day ${G.t.toFixed(1)}. Try again: the list below shows what to change.</p>`}
+    ${debriefScoreHtml(G, H, res)}
+    ${!ok && missed ? `<div class="try-next"><div class="eyebrow">Try next time</div>${missed}</div>` : ''}
+    ${ok ? `<div class="reflect-card">
+      <div class="eyebrow">Your turn · reflect</div>
+      <h3>${esc(L.reflection.q)}</h3>
       <div id="refl">${L.reflection.options.map((o, i) => `<button class="opt" data-r="${i}"><b style="font-weight:600">${esc(o)}</b></button>`).join('')}</div>
-      <div id="reflOut"></div>` : ''}
+      <div id="reflOut"><p class="muted small-note">Answer to unlock your insight card${hasNext ? ' and the next shift' : ''}.</p></div>
+    </div>` : ''}
+    <div class="db-more">
+      ${H ? `<details data-charts><summary>Charts: you vs. the untouched factory</summary>${debriefCompareHtml(G, H)}</details>` : ''}
+      ${decs ? `<details><summary>Your decisions ${decisionSummary(G)}</summary>${decs}</details>` : ''}
+      ${ok && missed ? `<details><summary>Missed opportunities ${nMissed ? `<span class="sc-chip bad">${nMissed}</span>` : '<span class="sc-chip good">none</span>'}</summary>${missed}</details>` : ''}
+    </div>
     <div class="modal-actions">
       <button class="btn" data-menu>Menu</button>
-      <button class="btn" data-retry>Retry shift</button>
+      <button class="btn${ok ? '' : ' primary'}" data-retry>Retry shift</button>
       ${ok && hasNext ? `<button class="btn primary" data-next disabled>Next shift →</button>` : ''}
       ${ok && !hasNext ? `<button class="btn primary" data-deck disabled>See your insight deck</button>` : ''}
     </div>`, !!H);
-  if (H) card.querySelectorAll('[data-cmp]').forEach(c => compareChart(c, G, H, c.dataset.cmp));
+  const ch = card.querySelector('[data-charts]');
+  if (ch) ch.addEventListener('toggle', () => { if (ch.open) card.querySelectorAll('[data-cmp]').forEach(c => compareChart(c, G, H, c.dataset.cmp)); });
   card.querySelector('[data-menu]').onclick = showTitle;
   card.querySelector('[data-retry]').onclick = () => startLevel(L.id);
   const next = card.querySelector('[data-next]'), deck = card.querySelector('[data-deck]');
@@ -820,8 +830,10 @@ function showDebrief() {
       else if (x === b) x.classList.add('wrong');
     });
     card.querySelector('#reflOut').innerHTML = `<div class="feedback ${right ? 'ok' : 'no'}" style="margin-bottom:14px"><b>${right ? 'Exactly.' : 'Not quite.'}</b> ${esc(L.reflection.explain)}</div>${insightHtml(L)}`;
-    if (next) next.disabled = false;
-    if (deck) deck.disabled = false;
+    if (next) { next.disabled = false; next.classList.add('ready'); }
+    if (deck) { deck.disabled = false; deck.classList.add('ready'); }
+    card.querySelector('.reflect-card').classList.add('answered');
+    card.querySelector('#reflOut').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
 }
 
