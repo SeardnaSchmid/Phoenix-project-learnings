@@ -381,7 +381,7 @@ function house(x, y, alarm, T) {
 }
 
 function hiddenByFog(G, c) {
-  return G.fogA > .5 && c.loc >= 1 && c.loc <= 4 && (c.state === 'queue' || c.state === 'proc' || c.state === 'out');
+  return c.loc >= 1 && c.loc <= 4 && stationFog(G, c.loc) > .5 && (c.state === 'queue' || c.state === 'proc' || c.state === 'out');
 }
 
 function buildDrawables(G, T) {
@@ -461,14 +461,15 @@ function drawFog(G, T) {
   if (G.fogA <= 0.01) return;
   const [r, g, b] = PAL.fog;
   for (let i = 1; i <= 4; i++) {
-    const s = G.st[i];
+    const s = G.st[i], fa = stationFog(G, i);
+    if (fa <= .01) continue;
     for (let k = 0; k < 7; k++) {
       const fx = s.x - 1.6 + (k % 4) * .9 + Math.sin(T * .6 + k + i) * .25;
       const fy = 2.2 + Math.floor(k / 4) * 1.6 + Math.cos(T * .5 + k * 2) * .2;
       const [sx, sy] = P(fx, fy, .7);
       const rad = 46 + (k % 3) * 10;
       const grd = ctx.createRadialGradient(sx, sy, 0, sx, sy, rad);
-      grd.addColorStop(0, `rgba(${r},${g},${b},${.55 * G.fogA})`);
+      grd.addColorStop(0, `rgba(${r},${g},${b},${.55 * fa})`);
       grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
       ctx.fillStyle = grd;
       ctx.beginPath(); ctx.ellipse(sx, sy, rad, rad * .6, 0, 0, Math.PI * 2); ctx.fill();
@@ -480,22 +481,24 @@ function drawOverlays(G, ui, T) {
   for (const s of G.st) {
     const [sx, sy] = s.key === 'gate' ? P(s.x, 4.5, 2.4) : P(s.x, 2, 2.6);
     if (s.i > 0) {
-      const u = G.fogA > .5 ? 0 : s.u;
+      const fogged = stationFog(G, s.i) > .5, peek = peeking(G, s.i);
+      const u = fogged || peek ? 0 : s.u;
       const col = u < .7 ? PAL.good : u < .9 ? PAL.warn : PAL.bad;
       ctx.lineWidth = 4; ctx.lineCap = 'round';
       ctx.strokeStyle = PAL.track;
       ctx.beginPath(); ctx.arc(sx, sy, 15, 0, Math.PI * 2); ctx.stroke();
-      if (G.fogA <= .5) {
+      if (!fogged && !peek) {
         glowOn(col); ctx.strokeStyle = col;
         ctx.beginPath(); ctx.arc(sx, sy, 15, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * u); ctx.stroke();
         glowOff();
       }
       ctx.fillStyle = PAL.text; ctx.font = '700 10px Inter, system-ui, sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(G.fogA > .5 ? '?' : Math.round(u * 100) + '%', sx, sy + .5);
+      ctx.fillText(peek ? String(stationCount(G, s.i)) : fogged ? '?' : Math.round(u * 100) + '%', sx, sy + .5);
       let label = s.name;
       if (s.limit != null) label += `  ${stationCount(G, s.i)}/${s.limit}`;
       pill(label, sx, sy + 28, s.limit != null && stationCount(G, s.i) > s.limit ? PAL.bad : null);
+      if (showWipPills(G)) pill(`${stationCount(G, s.i)} in progress`, sx, sy - 30, PAL.crate.chg, '#2a2108');
     } else {
       pill(`Demand · ${G.backlog.length} waiting`, sx, sy);
     }
@@ -537,12 +540,17 @@ function drawOverlays(G, ui, T) {
   }
   ctx.globalAlpha = 1;
 }
-function pill(text, x, y, color) {
+// Right after the fog lifts (and on the tour), every station says how much it has in progress.
+function showWipPills(G) {
+  if (G.kanbanT != null && G.t - G.kanbanT < 2.5) return true;
+  return !!(G.L.tour && !G.tourDone && G.tourStep != null && TOUR[G.tourStep].wipPills);
+}
+function pill(text, x, y, color, ink) {
   ctx.font = '600 11px Inter, system-ui, sans-serif';
   const w = ctx.measureText(text).width + 16;
   ctx.fillStyle = color || PAL.pill;
   ctx.beginPath(); ctx.roundRect(x - w / 2, y - 10, w, 20, 10); ctx.fill();
-  ctx.fillStyle = color ? '#ffffff' : PAL.text;
+  ctx.fillStyle = ink || (color ? '#ffffff' : PAL.text);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(text, x, y + .5);
 }

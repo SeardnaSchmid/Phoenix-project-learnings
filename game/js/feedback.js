@@ -267,11 +267,12 @@ function updatePatience(G) {
   const parts = [];
   if (G.patDrain.incidents > 0) parts.push(`open incidents −${G.patDrain.incidents.toFixed(0)}/day`);
   if (G.patDrain.backlog > 0) parts.push(`huge backlog −${G.patDrain.backlog.toFixed(1)}/day`);
+  if (G.patDrain.wip > 0) parts.push(`too much in progress −${G.patDrain.wip.toFixed(1)}/day`);
   const agg = {};
   for (const e of G.patLog) { const a = agg[e.reason] = agg[e.reason] || { n: 0, d: 0 }; a.n++; a.d += e.d; }
   const recent = Object.entries(agg).map(([r, a]) => `${a.d > 0 ? '+' : ''}${a.d.toFixed(1)} from ${a.n} ${r}${a.n > 1 && !r.endsWith('decision') ? 's' : ''}`);
   block.dataset.tip = `<b>Business patience</b>: your session limit. If it hits 0, the shift fails.<br>` +
-    `Rises with on-time deliveries; drains with late work, failed deploys, open incidents and a huge backlog.` +
+    `Rises with on-time deliveries; drains with late work, failed deploys, open incidents, a huge backlog and a crowded floor.` +
     (parts.length ? `<br><br><b>Draining right now:</b> ${parts.join(', ')}` : '') +
     (recent.length ? `<br><b>Last day:</b> ${recent.join(', ')}` : '');
   // floating deltas

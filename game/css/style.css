@@ -424,3 +424,89 @@ body.tour-hud .kpi, body.tour-hud #patBlock, body.tour-hud .left-col > .panel, b
 .ticon.tchip { width: 16px; height: 16px; margin-right: 4px; vertical-align: -3px; }
 .chips { gap: 4px; }
 .legend .ticon { display: inline-grid; }
+
+/* ---------- cold open banner ---------- */
+.banner { position: fixed; left: 50%; top: 150px; transform: translateX(-50%); z-index: 30; pointer-events: none; text-align: center;
+  padding: 14px 30px 16px; border-radius: 16px; background: color-mix(in srgb, var(--bg-solid) 78%, transparent);
+  border: 1px solid var(--border); backdrop-filter: blur(6px); box-shadow: 0 14px 40px rgba(0,0,0,.25); }
+.banner.in { animation: bnIn .5s cubic-bezier(.2,.9,.3,1.2) both; }
+.banner.out { animation: bnOut .55s ease both; }
+.banner .bn-k { font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+.banner .bn-t { font-size: 28px; font-weight: 800; letter-spacing: -.01em; margin-top: 2px; }
+.banner .bn-s { font-size: 13px; color: var(--muted); margin-top: 3px; }
+@keyframes bnIn { from { opacity: 0; transform: translate(-50%, -14px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes bnOut { to { opacity: 0; transform: translate(-50%, -10px); } }
+
+/* ---------- growing toolbox ---------- */
+.tool.locked-slot { opacity: .5; border-style: dashed; background: transparent; grid-template-columns: auto 1fr; }
+.tool.locked-slot .t-icon { background: var(--raise); color: var(--muted); }
+.tool.new { animation: toolNew 1.4s ease-in-out infinite; border-color: var(--accent); position: relative; }
+.tool.new::after { content: 'NEW'; position: absolute; top: -7px; right: 10px; background: var(--accent); color: var(--accent-ink);
+  font-size: 9px; font-weight: 800; letter-spacing: .08em; padding: 2px 6px; border-radius: 6px; }
+@keyframes toolNew { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent); } }
+
+/* ---------- progressive goals ---------- */
+.goals li.locked { color: var(--muted); font-style: italic; opacity: .6; }
+.goals li.locked .ck { border-style: dashed; }
+.goals li.fresh { animation: goalIn .9s ease both; }
+@keyframes goalIn { 0% { opacity: 0; transform: translateX(-8px); } 40% { opacity: 1; color: var(--accent); } 100% { transform: none; } }
+.goals li[data-tip] { cursor: help; }
+
+/* ---------- second voice ---------- */
+
+
+/* ---------- asking around in the fog ---------- */
+.sp-note { margin: 6px 0 6px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.sp-note.small { font-size: 11.5px; margin-top: 4px; }
+.peek-bar { height: 4px; border-radius: 3px; background: var(--track, var(--raise)); margin-top: 8px; overflow: hidden; }
+.peek-bar i { display: block; height: 100%; background: var(--accent); }
+.btn.small { padding: 6px 12px; font-size: 12.5px; margin-top: 4px; }
+.title-actions .link-btn.reset { margin-left: 0; }
+
+/* ---------- floor chatter: tweet-style voices ---------- */
+.mentor { padding: 10px 12px 12px; }
+.feed-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.feed-head h3 { margin: 0; }
+.feed { display: flex; flex-direction: column; gap: 6px; }
+.feed:empty::before { content: 'Quiet on the floor… for now.'; font-size: 12.5px; color: var(--muted); font-style: italic; }
+.post { --vc: #8e7cc3; display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 10px 11px; border-radius: 12px;
+  background: var(--raise); border: 1px solid var(--border); border-left: 3px solid var(--vc); }
+.post.who-boss { --vc: #e0614a; } .post.who-security { --vc: #3f8fd8; }
+.post .av svg { width: 42px; height: 42px; display: block; border-radius: 50%; box-shadow: 0 0 0 2px color-mix(in srgb, var(--vc) 45%, transparent); }
+.post .ph { display: flex; align-items: baseline; gap: 6px; }
+.post .ph b { font-size: 14px; white-space: nowrap; }
+.post .role .tag { margin-right: 6px; }
+.post .tag { font-size: 9.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; padding: 2px 6px; border-radius: 5px;
+  background: color-mix(in srgb, var(--vc) 22%, transparent); color: var(--vc); }
+.post .pt { margin-left: auto; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.post .role { font-size: 11px; color: var(--vc); font-weight: 600; margin-top: 1px; }
+.post p { margin: 6px 0 0; font-size: 15px; line-height: 1.45; color: var(--text); }
+.post.latest { background: color-mix(in srgb, var(--vc) 12%, var(--raise)); box-shadow: 0 6px 20px color-mix(in srgb, var(--vc) 18%, transparent); }
+.post.old { opacity: .72; padding: 7px 10px; gap: 8px; }
+.post.old .av svg { width: 26px; height: 26px; }
+.post.old .role { display: none; }
+.post.old p { font-size: 12.5px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.post.old:hover { opacity: 1; }
+.post.old:hover p { -webkit-line-clamp: unset; }
+.post.pop { animation: postIn .45s cubic-bezier(.2,.9,.3,1.25); }
+@keyframes postIn { from { opacity: 0; transform: translateY(-10px) scale(.97); } to { opacity: 1; transform: none; } }
+
+.post.old .tag { display: none; }
+.mentor { --vc: #8e7cc3; }
+.mentor[data-who="boss"] { --vc: #e0614a; } .mentor[data-who="security"] { --vc: #3f8fd8; }
+.mentor.ping { animation: feedPing 1.6s ease-out; }
+@keyframes feedPing { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vc) 70%, transparent); } 100% { box-shadow: 0 0 0 14px color-mix(in srgb, var(--vc) 0%, transparent); } }
+.title-actions .btn, .title-actions .link-btn { white-space: nowrap; }
+.title-actions { flex-wrap: wrap; }
+
+/* ---------- KPI callout ---------- */
+.callout { position: fixed; z-index: 31; width: 280px; padding: 12px 14px 10px; cursor: pointer;
+  border: 1px solid var(--chg); box-shadow: 0 12px 34px rgba(0,0,0,.3); animation: bnIn2 .4s cubic-bezier(.2,.9,.3,1.2) both; }
+.callout b { font-size: 14px; }
+.callout p { margin: 4px 0 4px; font-size: 13.5px; line-height: 1.45; }
+.callout small { font-size: 10.5px; color: var(--muted); }
+.callout::after { content: ''; position: absolute; bottom: -8px; left: calc(var(--ax, 50%) - 8px); width: 14px; height: 14px;
+  background: inherit; border-right: 1px solid var(--chg); border-bottom: 1px solid var(--chg); transform: rotate(45deg); }
+@keyframes bnIn2 { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.kpi.spot { animation: kpiSpot 1.2s ease-in-out 4; border-color: var(--chg); }
+@keyframes kpiSpot { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--chg) 0%, transparent); } 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--chg) 40%, transparent); } }

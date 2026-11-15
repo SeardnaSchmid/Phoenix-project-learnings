@@ -134,6 +134,11 @@ $('#btnExit').onclick = confirmExit;
 $('#btnHint').onclick = nextHint;
 $('#btnDeck').onclick = showDeck;
 $('#btnUnlock').onclick = () => { UI.save.unlockAll = true; persist(); renderTitle(); };
+$('#btnReset').onclick = () => {
+  if (!confirm('Reset all progress? Stars and discovered tools will be lost.')) return;
+  UI.save = { theme: UI.save.theme }; persist(); renderTitle();
+};
+$('#btnBrief').onclick = showBrief;
 
 // ---------- boot ----------
 applyTheme(UI.save.theme || 'dark');

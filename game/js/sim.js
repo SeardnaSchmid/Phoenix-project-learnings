@@ -76,11 +76,11 @@ function buildGame(L, opts, seed, rng) {
     debt: L.debt ?? 10, debtShare: L.debtShare ?? (L.mix ? L.mix.int : .2),
     fq: L.fq ?? .4, batch: L.batch ?? 1,
     flags: Object.assign({}, L.flags || {}), owned: {}, locks: {},
-    toolUses: {}, decisions: [], choices: {}, patFx: [], patLog: [], patDrain: { incidents: 0, backlog: 0 }, pulses: [], fx: [],
+    toolUses: {}, decisions: [], choices: {}, patFx: [], patLog: [], patDrain: { incidents: 0, backlog: 0, wip: 0 }, pulses: [], fx: [],
     stats: { delivered: [], resolved: [], deploys: [], mttr: [], reworks: 0, interruptions: 0 },
     incidents: [], pending: [],
     arrivalT: .15, fireT: rnd(.4, 1.2), shadowT: rnd(.2, .8), releaseCd: 0,
-    marked: null, fogA: L.fog ? 1 : 0,
+    marked: null, fogA: L.fog ? 1 : 0, kanbanT: null, peek: {}, peeked: new Set(), disc: {}, seen: {},
     hero: { x: 0, y: 2.3, state: 'home', path: [], dest: null, cur: null, timer: 0, dur: 0, bubble: -1,
       doc: null, otUntil: -1, burnUntil: -1, errandUntil: -1 },
     teamOT: null, resilience: 1,
@@ -127,7 +127,8 @@ function preload(G, spec) {
     const s = G.st.find(x => x.key === key);
     for (let k = 0; k < spec[key]; k++) {
       const c = newCrate(G, pickType(G));
-      c.released = -rnd(1, 4); c.loc = s.i; c.state = 'queue';
+      const [a0, a1] = G.L.preloadAge || [1, 4];
+      c.released = -rnd(a0, a1); c.loc = s.i; c.state = 'queue';
       rollHero(G, s, c);
       s.q.push(c); G.crates.push(c);
       const p = slot(s, s.q.length - 1); c.x = p[0]; c.y = p[1]; c.z = p[2];
@@ -292,7 +293,7 @@ function release(G, c) {
 }
 function canRelease(G, c) {
   if (!c.classified) return false;
-  if (G.flags.freeze && (c.type === 'biz' || c.type === 'int') && floorWip(G) >= (G.L.freezeWip ?? 10)) return false;
+  if (G.flags.freeze && floorWip(G) >= (G.L.freezeWip ?? 10)) return false;
   if (c.type === 'chg' && G.locks.chgFreeze > G.t) return false;
   if (G.flags.utilDrive) return true;
   if (G.flags.rope && floorWip(G) >= (G.L.ropeN ?? 8)) return false;
@@ -310,7 +311,12 @@ function arriveAt(G, c) {
   }
   rollHero(G, s, c);
   c.qAt = G.t;
-  if (c.type === 'unp') s.q.unshift(c); else s.q.push(c);
+  if (c.type === 'unp') s.q.unshift(c);
+  else if (c.shadow && c.state === 'fall') {
+    // "can you just quickly…": hallway favors jump the queue
+    const k = s.q.findIndex(x => x.type !== 'unp');
+    s.q.splice(k < 0 ? s.q.length : k, 0, c);
+  } else s.q.push(c);
   c.state = 'queue';
 }
 
@@ -327,9 +333,14 @@ function forward(G, s, c) {
 function deliver(G, c) {
   c.state = 'done';
   const lead = G.t - c.released;
-  G.stats.delivered.push({ t: G.t, lead, type: c.type });
+  G.stats.delivered.push({ t: G.t, lead, type: c.type, shadow: c.shadow });
+  if (c.shadow) {
+    // a favor nobody officially asked for: it ate capacity, but the business never sees it
+    spark(G, CUST_X + .3, BELT_Y + .15, .4, PAL.gray);
+    return;
+  }
   const onTime = lead <= (G.L.sla ?? 4);
-  patienceHit(G, onTime ? 1.5 : -1.5, onTime ? 'on-time delivery' : 'late delivery');
+  patienceHit(G, onTime ? 1.5 : -(G.L.latePenalty ?? 1.5), onTime ? 'on-time delivery' : 'late delivery');
   G.budget += G.L.income ?? .5;
   if (G.L.debtDyn) {
     if (c.type === 'biz') G.debt += G.L.debtDyn.up;
@@ -631,15 +642,21 @@ function updateInner(G, dt) {
   for (const s of G.st) stationStep(G, s, dt);
   moveCrates(G, dt);
 
-  // fog lifts once work is visible
-  if (G.owned.kanban) G.fogA = Math.max(0, G.fogA - dt * 3);
+  // fog lifts once work is visible: a wave rolls from Dev to Ops
+  if (G.owned.kanban) {
+    if (G.kanbanT == null) G.kanbanT = G.t;
+    if (G.t > G.kanbanT + .75) G.fogA = Math.max(0, G.fogA - dt * 3);
+  }
 
   // patience
   const open = G.incidents.filter(i => !i.resolved && !i.drill && i.start <= G.t).length;
   const tol = L.backlogTol ?? 18;
   G.patDrain.incidents = open * (L.incDrain ?? 5);
   G.patDrain.backlog = G.backlog.length > tol ? (G.backlog.length - tol) * .15 : 0;
-  G.patience = clamp(G.patience - (G.patDrain.incidents + G.patDrain.backlog) * dt, 0, 100);
+  // everything started, nothing finished: the business feels a crowded floor directly
+  const wd = L.wipDrain, fw = wd ? floorWip(G) : 0;
+  G.patDrain.wip = wd && fw > wd.over ? (fw - wd.over) * wd.rate : 0;
+  G.patience = clamp(G.patience - (G.patDrain.incidents + G.patDrain.backlog + G.patDrain.wip) * dt, 0, 100);
 
   // debt
   if (L.debtSlider && G.locks.debt > G.t) G.debtShare = 0;
@@ -656,7 +673,10 @@ function updateInner(G, dt) {
   if (G.sampleT <= 0) { G.sampleT = .25; sampleKpis(G); }
 
   if (G.demo) return;
-  if (!G.ghost) for (const m of L.mentor || []) if (!G.fired.has(m.id) && m.when(G)) { G.fired.add(m.id); mentorSay(G, m.text); }
+  if (!G.ghost) for (const m of L.mentor || []) if (!G.fired.has(m.id) && m.when(G)) {
+    G.fired.add(m.id); mentorSay(G, m.text, m.who);
+    if (m.pulse) for (const i of m.pulse) G.pulses.push({ i, t0: G.t });
+  }
   for (const e of G.events) if (!e.done && G.t >= e.day && !G.pendingModal) { e.done = true; G.pendingModal = { type: 'event', ev: e }; }
   if (G.patience <= 0) G.ended = 'failed';
   else if (G.t >= L.days) G.ended = 'complete';
@@ -747,7 +767,7 @@ function tutorialAnswer(G, type) {
 // ---------- KPIs ----------
 function computeKpis(G) {
   const t = G.t, win = Math.min(3, Math.max(t, .5));
-  const del = G.stats.delivered;
+  const del = G.stats.delivered.filter(d => !d.shadow);
   const recent = del.slice(-10);
   const thrN = del.filter(d => d.t > t - 3).length;
   const res = G.stats.resolved.filter(r => r.t > t - 3 && !r.drill).length;
@@ -782,7 +802,18 @@ function sampleKpis(G) {
 }
 
 // ---------- mentor ----------
-function mentorSay(G, text) { if (!G.demo && !G.ghost) G.mentorQ.push({ text, t: G.t }); }
+function mentorSay(G, text, who) { if (!G.demo && !G.ghost) G.mentorQ.push({ text, who: who || 'mentor', t: G.t }); }
+
+// Fog per station (0 clear … 1 thick). Asking around clears it briefly; the Kanban board lifts it for good.
+function stationFog(G, i) {
+  if (!G.L.fog || i < 1 || i > 4 || G.fogA <= 0) return 0;
+  let a = 1;
+  if (G.kanbanT != null) a = clamp(1 - (G.t - G.kanbanT - (i - 1) * .15) / .25, 0, 1);
+  const p = G.peek[i];
+  if (p && G.t < p.until) a *= 1 - .92 * clamp(Math.min((G.t - p.t0) / .12, (p.until - G.t) / .3), 0, 1);
+  return a;
+}
+function peeking(G, i) { const p = G.peek[i]; return !!(p && G.t < p.until && G.kanbanT == null); }
 function trigger(G, id, text) {
   if (G.fired.has(id)) return;
   G.fired.add(id);

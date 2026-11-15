@@ -57,6 +57,7 @@ function showTitle() {
   $('#title').classList.remove('hidden');
   document.body.classList.add('title-mode');
   endTourUi();
+  $('#callout').classList.add('hidden');
   renderTitle();
 }
 
@@ -74,12 +75,71 @@ function startLevel(i) {
   document.body.classList.remove('title-mode');
   $('#board').classList.add('hidden');
   $('#stationPanel').classList.add('hidden');
-  $('#mentorSay').textContent = '';
+  $('#feed').innerHTML = '';
   $('#log').dataset.sig = '-';
   endTourUi();
   $('#log').dataset.first = '';
+  // tools discovered in earlier runs stay in the toolbox
+  UI.G.disc = Object.assign({}, UI.save.disc || {});
+  UI.G.discT = {}; UI.G.toolT = {};
+  UI.newTools = new Set();
   buildHud();
-  showIntro(L);
+  showBanner(`Shift ${L.id}`, L.title, L.concept, 3600);
+  if (L.tour) { UI.G.tourStep = 0; renderTour(); }
+}
+
+// Cold open: a short title card over the running floor instead of a modal.
+let bannerTimer = 0;
+function showBanner(kicker, title, sub, ms) {
+  const b = $('#banner');
+  b.innerHTML = `<div class="bn-k">${esc(kicker)}</div><div class="bn-t">${esc(title)}</div>${sub ? `<div class="bn-s">${esc(sub)}</div>` : ''}`;
+  b.classList.remove('hidden', 'out'); void b.offsetWidth; b.classList.add('in');
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => { b.classList.add('out'); bannerTimer = setTimeout(() => b.classList.add('hidden'), 600); }, ms);
+}
+
+// Point at a KPI card the first time it matters, so the number gets a meaning.
+let calloutTimer = 0;
+function showCallout({ kpi, title, text }) {
+  const card = $('#kv-' + kpi)?.closest('.kpi'), c = $('#callout');
+  if (!card || UI.screen !== 'game') return;
+  const v = computeKpis(UI.G)[kpi];
+  c.innerHTML = `<b>${esc(title)}${v != null ? `: ${Math.round(v)}` : ''}</b><p>${esc(text)}</p><small>click to dismiss</small>`;
+  c.classList.remove('hidden');
+  const r = card.getBoundingClientRect(), cr = c.getBoundingClientRect();
+  c.style.left = clamp(r.left + r.width / 2 - cr.width / 2, 8, innerWidth - cr.width - 8) + 'px';
+  c.style.top = (r.top - cr.height - 14) + 'px';
+  c.style.setProperty('--ax', (r.left + r.width / 2 - parseFloat(c.style.left)) + 'px');
+  card.classList.remove('spot'); void card.offsetWidth; card.classList.add('spot');
+  const hide = () => { c.classList.add('hidden'); card.classList.remove('spot'); };
+  c.onclick = hide;
+  clearTimeout(calloutTimer);
+  calloutTimer = setTimeout(hide, 9000);
+}
+
+// ---------- discovery: the toolbox grows as the player sees problems ----------
+function discoverable(G, key) { const d = G.L.discover && G.L.discover[key]; return d || null; }
+function toolVisible(G, key) { return !discoverable(G, key) || !!G.disc[key]; }
+function checkDiscoveries(G) {
+  const D = G.L.discover;
+  if (!D || G.ended) return;
+  for (const key of Object.keys(D)) {
+    const d = D[key];
+    if (G.disc[key] || (d.after && !G.disc[d.after])) continue;
+    if (d.after && !G.owned[d.after]) continue;
+    const base = d.after ? (G.toolT[d.after] ?? G.t) : 0;
+    if (d.when(G) || (d.late != null && G.t > base + d.late)) discover(G, key);
+  }
+}
+function discover(G, key) {
+  const d = G.L.discover[key];
+  G.disc[key] = true; G.discT[key] = G.t;
+  UI.save.disc = Object.assign(UI.save.disc || {}, { [key]: true }); persist();
+  UI.newTools.add(key);
+  mentorSay(G, d.say);
+  buildTools();
+  const t = TOOLS[key];
+  showBanner('New tool discovered', t.name, 'It\'s in your toolbox now. You keep it for later shifts.', 2600);
 }
 
 function buildHud() {
@@ -102,7 +162,7 @@ function buildHud() {
     attachMarkerHover(el.querySelector('canvas'));
   }
   // goals
-  $('#goals').innerHTML = L.goals.map((g, i) => `<li id="goal-${i}"><span class="ck"></span><span>${esc(g.label)}</span><span class="gv"></span></li>`).join('');
+  $('#goals').innerHTML = L.goals.map((g, i) => `<li id="goal-${i}"${g.tip ? ` data-tip="${esc(g.tip)}"` : ''}><span class="ck"></span><span class="gl">${esc(g.label)}</span><span class="gv"></span></li>`).join('');
   $('#steps').innerHTML = L.steps
     ? `<h3 style="margin-top:4px">Five focusing steps</h3><div class="steps">${['Identify', 'Exploit', 'Subordinate', 'Elevate', 'Repeat'].map(s => `<div class="step" data-step="${s.toLowerCase()}">${s}</div>`).join('')}</div>`
     : '';
@@ -152,10 +212,11 @@ function buildTools() {
     box.innerHTML = '<div class="t-desc" style="color:var(--muted);font-size:13px;line-height:1.5">No tools today. Just learn to read the floor: work types, queues, the KPIs at the bottom.</div>';
     return;
   }
-  for (const key of G.L.tools) {
+  for (const key of G.L.tools.filter(k => toolVisible(G, k))) {
     const t = TOOLS[key];
     const el = document.createElement('div');
-    el.className = 'tool'; el.dataset.key = key;
+    el.className = 'tool' + (UI.newTools.has(key) ? ' new' : ''); el.dataset.key = key;
+    el.addEventListener('mouseenter', () => { UI.newTools.delete(key); el.classList.remove('new'); });
     let ctl;
     if (t.kind === 'slider') {
       ctl = `<div class="slider-row"><input type="range" min="${t.min}" max="${t.max}" step="${t.step}"><b></b></div>`;
@@ -179,13 +240,21 @@ function buildTools() {
     }
     box.appendChild(el);
   }
+  const hidden = G.L.tools.filter(k => !toolVisible(G, k)).length;
+  for (let i = 0; i < hidden; i++) {
+    const el = document.createElement('div');
+    el.className = 'tool locked-slot';
+    el.dataset.tip = 'Not discovered yet. Look closely at the floor: when you understand a problem, the tool for it shows up here.';
+    el.innerHTML = `<div class="t-icon">${I('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>')}</div><div class="t-main"><div class="t-name">Undiscovered tool</div><div class="t-cat">investigate the floor</div></div>`;
+    box.appendChild(el);
+  }
   updateTools();
 }
 
 function updateTools() {
   const G = UI.G;
   if (!G) return;
-  document.querySelectorAll('#tools .tool').forEach(el => {
+  document.querySelectorAll('#tools .tool[data-key]').forEach(el => {
     const key = el.dataset.key, t = TOOLS[key];
     const uses = G.toolUses[key] || 0;
     const owned = t.kind === 'buy' && !t.repeat && uses > 0;
@@ -247,7 +316,10 @@ function useTool(key, s, confirmed) {
   const dec = toolDecision(G, key, s);
   G.budget -= t.cost || 0;
   G.toolUses[key] = (G.toolUses[key] || 0) + 1;
+  G.toolT[key] = G.toolT[key] ?? G.t;
   t.apply(G, s);
+  if (t.reveal) showBanner(...t.reveal(G), 4200);
+  if (t.callout) setTimeout(() => showCallout(t.callout), 900);
   if (key === 'markConstraint') {
     const ok = G.steps.identify && G.marked === s.i;
     Object.assign(dec, { fixed: ok ? 'helped' : 'wrong', expect: {},
@@ -331,9 +403,20 @@ function updateHud() {
     sparkline($('#ks-' + key), G.seriesT, fogged(G, key) ? [] : (G.series[key] || []), PAL.crate[m.color], L.days, G.decisions);
   }
 
+  checkDiscoveries(G);
+  let lockedShown = false;
   L.goals.forEach((g, i) => {
     const li = $('#goal-' + i);
     if (!li) return;
+    const shown = !g.reveal || g.reveal(G);
+    if (li.classList.contains('locked') === shown) {
+      li.classList.toggle('locked', !shown);
+      li.querySelector('.gl').textContent = shown ? g.label : 'Next goal: find the problem first';
+      if (shown && i > 0) { li.classList.remove('fresh'); void li.offsetWidth; li.classList.add('fresh'); }
+    }
+    li.style.display = !shown && lockedShown ? 'none' : '';
+    if (!shown) lockedShown = true;
+    if (!shown) { li.classList.remove('met'); li.querySelector('.ck').textContent = ''; li.querySelector('.gv').textContent = ''; return; }
     const fog = g.kpi && fogged(G, g.kpi);
     const met = !fog && goalMet(G, g, k);
     li.classList.toggle('met', met);
@@ -348,9 +431,7 @@ function updateHud() {
 
   if (G.mentorQ.length > UI.mentorShown) {
     UI.mentorShown = G.mentorQ.length;
-    const say = $('#mentorSay');
-    say.textContent = G.mentorQ[G.mentorQ.length - 1].text;
-    say.classList.remove('pop'); void say.offsetWidth; say.classList.add('pop');
+    renderFeed(G);
   }
   updateWatchBadges(G);
   renderLog(G);
@@ -443,6 +524,32 @@ function endTourUi() {
 }
 
 // ---------- mentor ----------
+// Voices on the floor: the mentor only asks questions; the others push the instinctive fix.
+const AV = (bg, shirt, extra) => `<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="${bg}"/>
+  <path d="M7 40c1-8 6-12 13-12s12 4 13 12z" fill="${shirt}"/><circle cx="20" cy="17" r="7.5" fill="#f2c9a5"/>${extra}</svg>`;
+const VOICES = {
+  mentor: { name: 'The Mentor', tag: 'Question', role: '@mentor', av: AV('#8e7cc3', '#4b3f72',
+    '<path d="M12.5 15c0-6 15-6 15 0-2-3-13-3-15 0z" fill="#d9d9e3"/><circle cx="17" cy="17.5" r="2.4" fill="none" stroke="#222" stroke-width="1.2"/><circle cx="23" cy="17.5" r="2.4" fill="none" stroke="#222" stroke-width="1.2"/><path d="M19.4 17.5h1.2" stroke="#222" stroke-width="1.2"/>') },
+  boss: { name: 'The Board', tag: 'Pressure', role: '@board', av: AV('#e0614a', '#2b2f3a',
+    '<path d="M12.5 15.5c0-7 15-7 15 0-3-4-12-4-15 0z" fill="#3a2a22"/><path d="M17 28l3 3 3-3z" fill="#fff"/><path d="M19 30.5h2l1 8h-4z" fill="#c22f3c"/>') },
+  security: { name: 'Security Chief', tag: 'Policy', role: '@security', av: AV('#3f8fd8', '#24344a',
+    '<path d="M11.5 14.5c1-6 16-6 17 0z" fill="#1b2433"/><path d="M10 14.5h20v2H10z" fill="#1b2433"/><path d="M26 32l3 1v3c0 2-1.5 3-3 3.5-1.5-.5-3-1.5-3-3.5v-3z" fill="#ffd25a"/>') },
+};
+function postHtml(m, i) {
+  const v = VOICES[m.who] || VOICES.mentor;
+  return `<div class="post who-${m.who || 'mentor'}${i === 0 ? ' latest' : ' old'}">
+    <div class="av">${v.av}</div>
+    <div class="pb"><div class="ph"><b>${esc(v.name)}</b><span class="pt">day ${Math.max(0, m.t).toFixed(1)}</span></div>
+    <div class="role"><span class="tag">${v.tag}</span>${esc(v.role)}</div><p>${esc(m.text)}</p></div></div>`;
+}
+function renderFeed(G) {
+  const f = $('#feed');
+  f.innerHTML = G.mentorQ.slice(-3).reverse().map(postHtml).join('');
+  if (f.firstElementChild) f.firstElementChild.classList.add('pop');
+  const panel = f.closest('.mentor'), who = (G.mentorQ[G.mentorQ.length - 1] || {}).who || 'mentor';
+  panel.dataset.who = who;
+  panel.classList.remove('ping'); void panel.offsetWidth; panel.classList.add('ping');
+}
 function nextHint() {
   const G = UI.G, h = G.L.hints || [];
   if (!h.length) return;
@@ -452,6 +559,12 @@ function nextHint() {
 
 // ---------- station panel ----------
 function openStation(i) {
+  const G = UI.G;
+  // in the fog, the only way to know what happens at a station is to walk over and ask
+  if (G.L.fog && i > 0 && G.kanbanT == null && !G.ended) {
+    G.peek[i] = { t0: G.t, until: G.t + 1.4 };
+    G.peeked.add(i);
+  }
   UI.selected = i;
   $('#stationPanel').classList.remove('hidden');
   updateStationPanel(true);
@@ -461,16 +574,28 @@ function closeStation() { UI.selected = null; $('#stationPanel').classList.add('
 function updateStationPanel(rebuild) {
   const G = UI.G, s = G.st[UI.selected], el = $('#stationPanel');
   if (!s) return;
-  const fog = G.fogA > .5 && s.i > 0;
+  const fog = stationFog(G, s.i) > .5 && s.i > 0, peek = peeking(G, s.i);
   const nW = s.workers.length;
   let html = `<div class="sp-head"><div><b>${esc(s.name)}</b><small>${s.i === 0 ? 'intake' : nW + (nW > 1 ? ' workers' : ' worker')}</small></div><button class="x-btn" data-close>×</button></div>`;
   if (s.i === 0) {
     html += `<div class="sp-row"><span>Waiting to be released</span><b>${G.backlog.length}</b></div>`;
     html += `<div class="sp-row"><span>Release rule</span><b>${G.flags.utilDrive ? 'push everything' : G.flags.freeze ? 'projects frozen' : G.flags.rope ? 'paced to constraint' : G.st[1].limit != null ? 'pull (Dev limit)' : 'push on arrival'}</b></div>`;
     html += `<div class="sp-row"><span>Hallway requests</span><b>${G.L.shadowRate ? (G.owned.singleIntake ? 'blocked' : 'bypassing intake') : '–'}</b></div>`;
+    if (G.L.shadowRate && G.owned.kanban) G.seen.shadow = true;
+  } else if (peek) {
+    const here = G.crates.filter(c => c.loc === s.i && FLOOR_STATES.has(c.state) && c.type !== 'unp');
+    const hall = here.filter(c => c.shadow).length, fires = G.crates.filter(c => c.loc === s.i && c.type === 'unp').length;
+    const left = G.peek[s.i].until - G.t;
+    html += `<p class="sp-note">You walked over and asked around.</p>`;
+    html += `<div class="sp-row"><span>Items in progress here</span><b>${here.length}</b></div>`;
+    html += `<div class="sp-row"><span>…of those, hallway requests</span><b>${hall}</b></div>`;
+    html += `<div class="sp-row"><span>Fires being fought</span><b>${fires}</b></div>`;
+    html += `<div class="peek-bar"><i style="width:${clamp(left / 1.4, 0, 1) * 100}%"></i></div><p class="sp-note small">Knowledge goes stale. When you look away, the fog comes back.</p>`;
   } else if (fog) {
-    html += `<p style="margin:6px 0 2px;font-size:13px;color:var(--muted);line-height:1.5">Nobody knows what's going on here. Work arrives through hallways and chats, and there's no board.</p>`;
+    html += `<p class="sp-note">Nobody knows what's going on here anymore. Work arrives through hallways and chats, and there's no board.</p>
+      <button class="btn small" data-ask>Ask around again</button>`;
   } else {
+    if (s.q.some(c => c.shadow) || G.crates.some(c => c.loc === s.i && c.shadow && c.state === 'proc')) G.seen.shadow = true;
     const u = s.u, inProg = s.workers.filter(w => w.cur).length;
     const mult = u >= .99 ? '∞' : (u / (1 - u)).toFixed(1);
     html += `<div class="sp-row"><span>Utilization (busiest worker)</span><b>${Math.round(u * 100)}%</b></div>`;
@@ -485,6 +610,8 @@ function updateStationPanel(rebuild) {
   }
   el.innerHTML = html;
   el.querySelector('[data-close]').onclick = closeStation;
+  const ask = el.querySelector('[data-ask]');
+  if (ask) ask.onclick = () => openStation(s.i);
   el.querySelectorAll('[data-lim]').forEach(b => b.onclick = () => { changeLimit(s, Number(b.dataset.lim)); updateStationPanel(); });
   const cvs = el.querySelector('canvas');
   if (cvs) waitCurve(cvs, s.u);
@@ -542,6 +669,8 @@ function renderBoard() {
     b.innerHTML = '<h3>Kanban board</h3><p style="margin:0;color:var(--muted)">There is no board yet. Buy the Kanban board in the toolbox to see all work in one place.</p>';
     return;
   }
+  G.seen.board = true;
+  if (G.crates.some(c => c.shadow && c.loc >= 1 && c.loc <= 4)) G.seen.shadow = true;
   const chip = c => typeIcon(c.type, 'chipc' + (c.shadow ? ' hidden-work' : ''));
   const chips = list => list.slice(0, 40).map(chip).join('') + (list.length > 40 ? `<span class="more">+${list.length - 40}</span>` : '');
   const cols = [{ name: 'Backlog', list: G.backlog, s: null }];
@@ -573,22 +702,19 @@ function openModal(html, wide) {
 }
 function closeModal() { UI.modal = false; $('#modal').classList.add('hidden'); }
 
-function goalListHtml(L) { return '<ul>' + L.goals.map(g => `<li>${esc(g.label)}</li>`).join('') + '</ul>'; }
-
-function showIntro(L) {
+// The level brief is optional now: the floor shows the problem, this only recaps it.
+function showBrief() {
+  const G = UI.G, L = G.L;
   const card = openModal(`
     <div class="eyebrow">Shift ${L.id} · ${esc(L.concept)}</div>
     <h2>${esc(L.title)}</h2>
     <p>${esc(L.hook)}</p>
-    <div class="section-h">You'll learn</div>
-    <ul>${L.learn.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
     <div class="section-h">Shift goals (${L.days} days)</div>
-    ${goalListHtml(L)}
-    <p class="muted" style="font-size:12.5px">Some tools in the toolbox are traps: they look like they should help. Click stations to inspect them.
+    <ul>${L.goals.map(g => `<li>${esc(!g.reveal || g.reveal(G) ? g.label : 'Hidden until you find the problem')}</li>`).join('')}</ul>
+    <p class="muted" style="font-size:12.5px">Click stations to inspect them. Not every tool helps, and some are traps.
     <span class="kbd">Space</span> pause · <span class="kbd">1</span><span class="kbd">2</span><span class="kbd">3</span> speed · <span class="kbd">B</span> board</p>
-    <div class="modal-actions"><button class="btn" data-menu>Menu</button><button class="btn primary" data-go>Start shift</button></div>`);
-  card.querySelector('[data-go]').onclick = () => { closeModal(); if (L.tour) { UI.G.tourStep = 0; renderTour(); } updateHud(); };
-  card.querySelector('[data-menu]').onclick = showTitle;
+    <div class="modal-actions"><button class="btn primary" data-go>Back to the floor</button></div>`);
+  card.querySelector('[data-go]').onclick = () => { closeModal(); updateHud(); };
 }
 
 function showEvent(ev) {

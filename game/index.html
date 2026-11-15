@@ -22,6 +22,7 @@
       <button id="btnDeck" class="btn">Insight deck</button>
       <button id="btnThemeTitle" class="btn ghost theme-btn"></button>
       <button id="btnUnlock" class="link-btn">Unlock all shifts</button>
+      <button id="btnReset" class="link-btn reset">Reset progress</button>
     </div>
   </div>
 </div>
@@ -47,6 +48,7 @@
       <button data-sp="2" title="Fast (2)">2×</button>
       <button data-sp="4" title="Faster (3)">4×</button>
     </div>
+    <button class="tb-btn" id="btnBrief" title="What is this shift about?">Brief</button>
     <button class="tb-btn" id="btnBoard" title="Kanban board (B)">Board</button>
     <button class="tb-btn theme-btn" id="btnTheme"></button>
     <button class="tb-btn" id="btnExit">Menu</button>
@@ -65,9 +67,8 @@
   </aside>
   <aside class="right-col">
     <div class="mentor panel">
-      <div class="m-head"><div class="face">M</div><div><div class="who">Mentor</div><div class="m-sub">asks, doesn't tell</div></div>
-        <button class="chip-btn" id="btnHint">Hint</button></div>
-      <div class="say" id="mentorSay"></div>
+      <div class="feed-head"><h3>Floor chatter</h3><button class="chip-btn" id="btnHint">Ask the mentor</button></div>
+      <div id="feed" class="feed"></div>
     </div>
     <div class="log-panel panel">
       <h3>Decision log</h3>
@@ -80,6 +81,8 @@
   <div id="stationPanel" class="station-panel panel hidden"></div>
   <div id="targetHint" class="target-hint hidden"></div>
   <div id="tour" class="tour panel hidden"></div>
+  <div id="banner" class="banner hidden"></div>
+  <div id="callout" class="callout panel hidden"></div>
   <div id="pausedBadge" class="paused-badge hidden">Paused · Space to resume</div>
 </div>
 

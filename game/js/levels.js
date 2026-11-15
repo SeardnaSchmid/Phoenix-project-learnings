@@ -38,7 +38,17 @@ const TOOLS = {
   kanban: {
     name: 'Kanban board', kind: 'buy', cost: 3,
     desc: 'Put every piece of work on one shared board. Lifts the fog and reveals hidden work.',
-    apply: G => { G.owned.kanban = true; mentorSay(G, 'Now look at those piles. All of that was in progress, and nobody could see it.'); },
+    apply: G => {
+      G.owned.kanban = true;
+      const wip = computeKpis(G).wip;
+      const people = G.st.slice(1).reduce((n, s) => n + s.workers.length, 0);
+      mentorSay(G, `${wip} things in progress for ${people} people. All of it started, none of it finished, and nobody could see it. How long do you think each one has to wait?`);
+    },
+    callout: { kpi: 'wip', title: 'Work in progress (WIP)', text: 'Everything that was started but isn\'t finished yet. Every extra item makes all the others wait longer.' },
+    reveal: G => {
+      const floor = G.crates.filter(c => c.loc >= 1 && c.loc <= 4), hidden = floor.filter(c => c.shadow).length;
+      return ['Fog lifted', `${floor.length} items in progress`, hidden ? `${hidden} of them came in through the hallway, without a ticket` : 'All of it was there the whole time'];
+    },
   },
   singleIntake: {
     name: 'Single intake', kind: 'buy', cost: 3,
@@ -47,7 +57,7 @@ const TOOLS = {
   },
   freeze: {
     name: 'Project freeze', kind: 'toggle',
-    desc: 'Stop starting: new projects wait at Demand until fewer than 8 items are in progress. Changes and fires still flow.',
+    desc: 'Stop starting: new work waits at Demand until fewer than 8 items are in progress. Only fires still go straight in.',
     get: G => !!G.flags.freeze, set: (G, v) => { G.flags.freeze = v; },
   },
   teamOvertime: {
@@ -316,9 +326,10 @@ const LEVELS = [
     id: 2, title: 'Fog of War', concept: 'Make work visible',
     hook: 'Everyone is busy, nothing ships, and nobody can say what\'s in progress. Requests reach engineers through hallways, chats and favors. The floor is in fog.',
     learn: ['You can\'t manage work you can\'t see', 'Hidden WIP is the silent killer', 'Freezing new work lets the pile drain'],
-    days: 12, sla: 5, rate: 1.7, mix: { biz: .45, int: .2, chg: .35 },
-    fog: true, shadowRate: .5, preload: { dev: 5, test: 8, gate: 1, ops: 2 }, backlogTol: 25, freezeWip: 8,
-    debt: 10, fires: true, fireBase: .15, fireDebt: .015, fq: .4, cs: .04, budget: 8, patience: 75,
+    days: 12, sla: 3.5, rate: 1.6, mix: { biz: .45, int: .2, chg: .35 }, workers: { dev: 3, test: 2 },
+    fog: true, shadowRate: 1.8, preload: { dev: 7, test: 7, gate: 1, ops: 2 }, preloadAge: [2, 4], backlogTol: 25, freezeWip: 8,
+    debt: 10, fires: true, fireBase: .1, fireDebt: .015, pDef: .05, incDrain: 3, fq: .4, cs: .06, budget: 8,
+    patience: 50, wipDrain: { over: 9, rate: .5 }, latePenalty: .5,
     kpis: ['lead', 'thr', 'wip', 'unp'],
     tools: ['kanban', 'singleIntake', 'freeze', 'teamOvertime'],
     missed: [
@@ -326,10 +337,20 @@ const LEVELS = [
       { done: G => (G.toolUses.singleIntake || 0) > 0, text: 'Single intake: hallway requests kept sneaking unplanned WIP onto the floor.' },
       { done: G => (G.toolUses.freeze || 0) > 0, text: 'Project freeze: stopping new starts lets the floor finish what it began.' },
     ],
+    // Tools in `discover` stay hidden until the player has seen the problem they solve.
+    discover: {
+      kanban: { when: G => G.peeked.size >= 2, late: 4,
+        say: 'You walked over and asked. It works, until you look away. Want to do that all day? What if every piece of work sat on one board that everyone can see?' },
+      singleIntake: { after: 'kanban', when: G => G.seen.shadow, late: 3,
+        say: 'There it is: work that never went through Demand. Somebody asked an engineer directly. As long as there are side doors, no board stays true. How do you close them?' },
+      freeze: { after: 'kanban', when: G => G.seen.board && computeKpis(G).wip > 14, late: 4,
+        say: 'Count the board: that much in progress for a handful of people. Everything waits on everything. What if you stopped starting new projects until the floor has finished some?' },
+    },
     goals: [
-      { label: 'Make all work visible', test: G => !!G.owned.kanban, show: G => G.owned.kanban ? 'yes' : 'no' },
-      { label: 'Work in progress ≤ 14', kpi: 'wip', op: '<=', val: 14 },
-      { label: 'Lead time ≤ 4.5 days', kpi: 'lead', op: '<=', val: 4.5 },
+      { label: 'Find out what\'s going on', tip: 'Click stations in the fog to ask around', test: G => !!G.disc.kanban, show: G => G.disc.kanban ? 'yes' : `${G.peeked.size} / 2 asked` },
+      { label: 'Make all work visible', reveal: G => !!G.disc.kanban, test: G => !!G.owned.kanban, show: G => G.owned.kanban ? 'yes' : 'no' },
+      { label: 'Work in progress ≤ 14', reveal: G => !!G.owned.kanban, kpi: 'wip', op: '<=', val: 14 },
+      { label: 'Lead time ≤ 4.5 days', reveal: G => !!G.owned.kanban, kpi: 'lead', op: '<=', val: 4.5 },
     ],
     events: [{
       day: 4, title: 'A new initiative',
@@ -340,13 +361,15 @@ const LEVELS = [
       ],
     }],
     mentor: [
-      { id: 'a', when: G => G.t > .2, text: 'Quick: what is the team working on right now? Neither of us can tell. Look at the KPIs. Can you manage what you can\'t see?' },
-      { id: 'b', when: G => G.owned.kanban && G.t > 3 && computeKpis(G).wip > 22, text: 'Every new item makes all the others wait longer. What would happen if you stopped starting new projects for a while?' },
-      { id: 'c', when: G => G.owned.kanban && G.crates.some(c => c.shadow && c.state === 'fall'), text: 'Did you see that? Work just appeared at a station without going through Demand. A hallway request. How do you stop those?' },
+      { id: 'boss', who: 'boss', when: G => G.t > .35, text: 'Why is nothing shipping?! Everyone looks busy. If they have to work late, then they work late. Put the team on overtime!' },
+      { id: 'a', when: G => G.t > 1 && !G.disc.kanban, pulse: [1, 2, 3, 4], text: 'Before you spend anything: what is the team working on right now? Neither of us can tell. Click a station in the fog and ask around.' },
+      { id: 'a2', when: G => G.peeked.size === 1 && !G.disc.kanban, text: 'Interesting. Now ask at another station. And keep an eye on the first one: how long does what you learned stay true?' },
+      { id: 'c', when: G => G.owned.kanban && !G.disc.singleIntake && G.crates.some(c => c.shadow && c.state === 'fall' && c.loc && stationFog(G, c.loc) < .5), text: 'Did you see that? Work just dropped onto the floor without going through Demand. Click that station and find out where it came from.' },
+      { id: 'b', when: G => G.owned.kanban && G.t > G.kanbanT + 1.5 && computeKpis(G).wip > 16 && !G.disc.freeze, text: 'Open the board (B). How much is in progress, compared to how many people work here?' },
       { id: 'd', when: G => G.flags.freeze && G.backlog.length > 12, text: 'The backlog at Demand is growing. That\'s fine: waiting there is cheap. Waiting half-done on the floor is what\'s expensive.' },
     ],
     generic: ['firstRework'],
-    hints: ['Buy the Kanban board first. You can\'t fix what you can\'t see.', 'Hallway requests keep sneaking in. Route everything through one intake.', 'Too much in progress? Freeze new projects so the floor can finish what it started.'],
+    hints: ['Click a station in the fog to ask what\'s going on there. Try two different ones.', 'You can\'t fix what you can\'t see. Is there a tool that shows all work at once?', 'Hallway requests keep sneaking in. Click a station right after work drops in from above.', 'Open the board (B). Too much in progress? Stop starting so the floor can finish.'],
     reflection: {
       q: 'Freezing new projects reduced lead time because…',
       options: ['People worked faster', 'Less work in progress means each item waits less', 'The business stopped caring about projects'],
@@ -393,6 +416,7 @@ const LEVELS = [
       ],
     }],
     mentor: [
+      { id: 'boss', who: 'boss', when: G => G.t > .9, text: 'We pay that one engineer a fortune and still nothing ships. Just hire more people. Problem solved.' },
       { id: 'a', when: G => G.t > .2, text: 'Orange star crates can only be done by the hero. Before you change anything: where does work pile up, and who is always busy?' },
       { id: 'b', when: G => G.st[4].q.length > 10 && !G.steps.identify, text: 'Ops has a growing pile. Is Ops slow, or is someone missing from Ops?' },
       { id: 'c', when: G => G.steps.identify && G.t > 2 && !G.steps.exploit, text: 'You found the constraint. Step 2: don\'t waste a minute of it. What keeps pulling the hero away?' },
@@ -441,6 +465,7 @@ const LEVELS = [
       ],
     }],
     mentor: [
+      { id: 'boss', who: 'boss', when: G => G.t > 1, text: 'I walked the floor: people waiting around, desks idle. I want every engineer at 100% utilization. Push more work in!' },
       { id: 'a', when: G => G.t > .2, text: 'Click on the Test station and look at the wait-time curve. What happens to waiting as utilization approaches 100%?' },
       { id: 'b', when: G => G.owned.wipLimits && G.st.some(s => s.limit != null), text: 'A limit is set. Now the station pulls work only when it has room. Watch lead time over the next couple of days.' },
       { id: 'c', when: G => G.t > 5 && !G.owned.wipLimits, text: 'Everyone is busy, yet lead time keeps growing. Why isn\'t busy the same as productive?' },
@@ -488,6 +513,7 @@ const LEVELS = [
       ],
     }],
     mentor: [
+      { id: 'boss', who: 'boss', when: G => G.t > 1, text: 'Another outage?! Get a dedicated firefighting crew in here. Nobody touches the old systems, we have features to ship.' },
       { id: 'a', when: G => G.t > .2, text: 'The feedback pipe is broken: you only hear about incidents when customers call. And where do all these fires come from?' },
       { id: 'b', when: G => G.t > 3 && G.debtShare < .15, text: 'Debt keeps rising and so do the fires. What share of your work goes into paying it down?' },
       { id: 'c', when: G => G.debtShare >= .2 && G.t > 1, text: 'About 20% for internal work. It feels slow at first. Watch the debt KPI over the next days.' },
@@ -537,6 +563,8 @@ const LEVELS = [
       ],
     }],
     mentor: [
+      { id: 'sec', who: 'security', when: G => G.t > .7, text: 'Every change gets the full review. No exceptions. If production breaks, it will not be because we skipped a signature.' },
+      { id: 'sec2', who: 'security', when: G => G.t > 4 && G.st[3].q.length > 8, text: 'The approval queue is long because we are thorough. If you want it faster, give me more approvers.' },
       { id: 'a', when: G => G.t > .2, text: 'The gate reviews every item the same way, routine or risky. Is all that reviewing making changes safer?' },
       { id: 'b', when: G => G.stats.deploys.some(d => d.failed) && !G.owned.preapprove, text: 'A change failed even though it was approved. Did the approval actually look at the risk?' },
       { id: 'c', when: G => G.owned.preapprove && G.owned.shiftLeft && G.owned.cutScope, text: 'Security is now part of the flow instead of a wall at the end. That\'s how it should feel.' },
@@ -587,6 +615,7 @@ const LEVELS = [
       ],
     }],
     mentor: [
+      { id: 'boss', who: 'boss', when: G => G.t > 1, text: 'The competition ships daily. Testing is slowing us down. Can we just skip it for this release?' },
       { id: 'a', when: G => G.t > .2, text: 'Look at Ops: items wait for a batch of 8, then the hero spends a whole day deploying them. What would make deploys boring?' },
       { id: 'b', when: G => G.stats.deploys.length === 1, text: 'One deploy, many items, one long day. If it breaks, which item caused it?' },
       { id: 'c', when: G => computeKpis(G).deploys >= 2, text: 'Ship small, ship often. Each deploy is boring now, and that\'s the goal.' },
@@ -628,10 +657,12 @@ const TOUR = [
     text: 'Delivered work reaches your customers. Each on-time delivery raises <b>business patience</b>. When an incident hits, the houses flash red and patience drains until it is fixed.' },
   { title: 'Reading a station', station: 2, at: [9.5, 1, 1.4],
     text: 'The <b>ring</b> above each station shows how busy it is: green is relaxed, red is overloaded. A <b>pile of crates</b> in front of a station is a queue: work that is waiting. Click any station to inspect it, including the wait-time curve.' },
+  { title: 'Work in progress', rect: [2.2, 4.1, 18.6, 4.9], at: [10, 4.5, 0], wipPills: true,
+    text: 'Every crate between Dev and Ops is <b>work in progress (WIP)</b>: started, but not finished yet. The labels above each station count it. More WIP doesn\'t mean more output, it means every item waits longer: <b>lead time ≈ WIP ÷ throughput</b>.' },
   { title: 'The feedback pipe', rect: [1, .1, 21.5, .5], at: [11, .3, 2.6],
     text: 'Above the floor, signals flow back from <b>right to left</b>: monitoring, alerts, customer reports. Fast, bright pulses mean you hear about problems quickly. A broken pipe means you learn about them from angry customers.' },
   { title: 'Your cockpit', hud: true,
-    text: 'Bottom: the <b>KPIs</b> (hover the ⓘ for the formula behind each one). Top: <b>day</b> and <b>business patience</b>, your session limit, since the shift fails at 0. Left: <b>goals</b> and the <b>toolbox</b>. Right: the <b>mentor</b> and your <b>decision log</b>.' },
+    text: 'Bottom: the <b>KPIs</b> (hover the ⓘ for the formula behind each one). Top: <b>day</b> and <b>business patience</b>, your session limit, since the shift fails at 0. Left: <b>goals</b> and the <b>toolbox</b>. Right: the <b>floor chatter</b> (mentor, board, security) and your <b>decision log</b>.' },
   { title: 'Ready for your first day', at: null,
     text: 'That\'s the whole floor. In every shift you\'ll face a new problem, use tools from the toolbox, and see whether your decisions really helped. Some tools are traps. Let\'s go!' },
 ];
