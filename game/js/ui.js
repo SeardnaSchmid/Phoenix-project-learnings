@@ -71,7 +71,7 @@ function startLevel(i) {
   UI.G.speed = 1;
   // the untouched twin: same seed, no toolbox decisions
   UI.ghost = L.tutorial || L.tour ? null : newGame(L, { seed: UI.G.seed, ghost: true });
-  UI.screen = 'game'; UI.mentorShown = 0; UI.hintI = 0; UI.selected = null; UI.targeting = null;
+  UI.screen = 'game'; UI.mentorShown = 0; UI.feedAt = 0; UI.hintI = 0; UI.selected = null; UI.targeting = null;
   $('#title').classList.add('hidden');
   $('#hud').classList.remove('hidden');
   document.body.classList.remove('title-mode');
@@ -139,6 +139,7 @@ function discover(G, key) {
   UI.save.disc = Object.assign(UI.save.disc || {}, { [key]: true }); persist();
   UI.newTools.add(key);
   mentorSay(G, d.say);
+  Object.assign(G.mentorQ[G.mentorQ.length - 1], { big: true, now: true });
   buildTools();
   const t = TOOLS[key];
   showBanner('New tool discovered', t.name, 'It\'s in your toolbox now. You keep it for later shifts.', 2600);
@@ -338,7 +339,7 @@ function confirmTool(key, s) {
   const G = UI.G, t = TOOLS[key];
   const verb = t.kind === 'toggle' ? 'Turn on' : t.kind === 'target' ? 'Apply' : t.repeat ? 'Use' : t.cost ? 'Buy' : 'Unlock';
   const card = openModal(`
-    <div class="eyebrow">Decision · day ${G.t.toFixed(1)}</div>
+    <div class="eyebrow">Decision · ${clockText(G, G.t)}</div>
     <h2>${verb} "${esc(t.name)}"${s ? ` at ${esc(s.name)}` : ''}?</h2>
     <p>${esc(t.desc)}</p>
     ${t.cost ? `<div class="confirm-cost"><span><span class="gem"></span> Cost <b>${t.cost}</b></span><span>Budget after <b>${Math.floor(G.budget - t.cost)}</b></span></div>` : ''}
@@ -384,8 +385,11 @@ function updateHud() {
   const G = UI.G;
   if (!G) return;
   const L = G.L, k = G.kpi;
-  $('#tbDay').textContent = `${Math.min(L.days, G.t).toFixed(1)} / ${L.days}`;
-  $('#tbDayBar').style.width = Math.min(100, G.t / L.days * 100) + '%';
+  const tg = targetProgress(G);
+  $('#tbDay').textContent = L.tour || L.tutorial ? clockText(G, G.t) : `${tg.met} / ${tg.n}`;
+  $('#tbDayBar').style.width = (L.tour || L.tutorial ? Math.min(100, G.t / L.days * 100) : tg.met / Math.max(1, tg.n) * 100) + '%';
+  $('#btnEnd').classList.toggle('hidden', !!(L.tour || L.tutorial));
+  $('#btnEnd').classList.toggle('ready', !!G.winOffered);
   updatePatience(G);
   $('#tbBudget').textContent = Math.floor(G.budget);
   document.querySelectorAll('#speedBtns button').forEach(b => b.classList.toggle('on', Number(b.dataset.sp) === G.speed));
@@ -402,7 +406,7 @@ function updateHud() {
       el.innerHTML = (v == null ? '–' : m.fmt(v)) + `<small>${m.unit}</small>`;
       el.className = 'v' + (goal && v != null ? (goalMet(G, goal, k) ? ' good' : ' bad') : '');
     }
-    sparkline($('#ks-' + key), G.seriesT, fogged(G, key) ? [] : (G.series[key] || []), PAL.crate[m.color], L.days, G.decisions);
+    sparkline($('#ks-' + key), G.seriesT, fogged(G, key) ? [] : (G.series[key] || []), PAL.crate[m.color], Math.max(6, G.t * 1.15), G.decisions);
   }
 
   checkDiscoveries(G);
@@ -425,14 +429,19 @@ function updateHud() {
     li.querySelector('.ck').textContent = met ? '✓' : '';
     li.querySelector('.gv').textContent = fog ? '??' : goalShow(G, g, k);
   });
+  checkWin(G);
   if (L.steps) {
     const done = { identify: G.steps.identify, exploit: G.steps.exploit, subordinate: G.steps.subordinate, elevate: G.steps.elevate,
       repeat: G.steps.elevate && G.st[1].heroProb === 0 && G.st[2].heroProb === 0 && G.st[4].heroProb === 0 };
     document.querySelectorAll('.step').forEach(el => el.classList.toggle('done', !!done[el.dataset.step]));
   }
 
-  if (G.mentorQ.length > UI.mentorShown) {
-    UI.mentorShown = G.mentorQ.length;
+  // one voice at a time: queued messages appear at most every few seconds (asked-for hints at once)
+  const nowMs = performance.now(), pending = G.mentorQ.length - UI.mentorShown;
+  if (pending > 0 && (nowMs - (UI.feedAt || 0) > FEED_GAP_MS || G.mentorQ[UI.mentorShown].now)) {
+    if (pending > 3) UI.mentorShown = G.mentorQ.length - 3;
+    UI.mentorShown++;
+    UI.feedAt = nowMs;
     renderFeed(G);
   }
   updateWatchBadges(G);
@@ -442,6 +451,44 @@ function updateHud() {
   positionTour();
   updateTourTask();
   if (!$('#board').classList.contains('hidden')) renderBoard();
+}
+
+// ---------- targets: the shift is won once every target holds for a moment ----------
+const WIN_HOLD = 1.2; // in-game days the targets must hold
+function targetProgress(G) {
+  const k = G.kpi, n = G.L.goals.length;
+  let met = 0;
+  for (const g of G.L.goals) if ((!g.reveal || g.reveal(G)) && !(g.kpi && fogged(G, g.kpi)) && goalMet(G, g, k)) met++;
+  return { met, n };
+}
+function checkWin(G) {
+  const L = G.L;
+  if (L.tour || L.tutorial || G.ended || G.winOffered || UI.modal) return;
+  const all = G.t > 1 && targetProgress(G).met === L.goals.length;
+  if (!all) { G.winSince = null; return; }
+  if (G.winSince == null) G.winSince = G.t;
+  if (G.t - G.winSince >= WIN_HOLD * G.k) showWin(G);
+}
+function showWin(G) {
+  G.winOffered = true;
+  const card = openModal(`
+    <div class="eyebrow">${esc(G.L.title)}</div>
+    <h2>Targets reached!</h2>
+    <p>Every target held for a while: the factory flows. The business is at <b>${Math.round(G.patience)}</b> patience after ${clockText(G, G.t)}.</p>
+    <p class="muted" style="font-size:13px">See how you did, or keep playing to watch your changes settle in. You can end the shift any time from the top bar.</p>
+    <div class="modal-actions"><button class="btn" data-keep>Keep playing</button><button class="btn primary" data-sum>See summary</button></div>`);
+  card.querySelector('[data-keep]').onclick = () => { closeModal(); updateHud(); };
+  card.querySelector('[data-sum]').onclick = () => { closeModal(); G.ended = 'complete'; };
+}
+function confirmEnd() {
+  const G = UI.G;
+  if (!G || G.ended) return;
+  const tg = targetProgress(G);
+  const card = openModal(`<h2>End the shift?</h2>
+    <p class="muted">${tg.met === tg.n ? 'All targets are met.' : `${tg.met} of ${tg.n} targets are met right now.`} You'll see your summary.</p>
+    <div class="modal-actions"><button class="btn" data-stay>Keep playing</button><button class="btn primary" data-end>End shift</button></div>`);
+  card.querySelector('[data-stay]').onclick = () => closeModal();
+  card.querySelector('[data-end]').onclick = () => { closeModal(); G.ended = 'complete'; };
 }
 
 // ---------- guided tour (shift 0) ----------
@@ -560,7 +607,7 @@ function postHtml(m, i) {
   const v = VOICES[m.who] || VOICES.mentor;
   return `<div class="post who-${m.who || 'mentor'}${i === 0 ? ' latest' : ' old'}">
     <div class="av">${v.av}</div>
-    <div class="pb"><div class="ph"><b>${esc(v.name)}</b><span class="pt">day ${Math.max(0, m.t).toFixed(1)}</span></div>
+    <div class="pb"><div class="ph"><b>${esc(v.name)}</b><span class="pt">${clockText(UI.G || { k: 1 }, m.t)}</span></div>
     <div class="role"><span class="tag">${v.tag}</span>${esc(v.role)}</div><p>${esc(m.text)}</p></div></div>`;
 }
 // Dim the floor for a moment and put a spotlight on the speaker.
@@ -576,24 +623,34 @@ function spotlight(el, who) {
   clearTimeout(spotTimer);
   spotTimer = setTimeout(() => fx.classList.remove('on'), who === 'mentor' ? 1600 : 2400);
 }
+const FEED_GAP_MS = 6000;
 function renderFeed(G) {
-  const f = $('#feed');
-  f.innerHTML = G.mentorQ.slice(-3).reverse().map(postHtml).join('');
+  const f = $('#feed'), shown = G.mentorQ.slice(0, UI.mentorShown);
+  f.innerHTML = shown.slice(-3).reverse().map(postHtml).join('');
   if (f.firstElementChild) f.firstElementChild.classList.add('pop', 'flash');
-  // a new voice on the floor pulls focus: glow, flash, and a nudge when someone pushes a quick fix
-  const panel = f.closest('.mentor'), who = (G.mentorQ[G.mentorQ.length - 1] || {}).who || 'mentor';
+  // a new voice pulls focus; only pressure from above and new discoveries get the full spotlight
+  const m = shown[shown.length - 1] || {}, who = m.who || 'mentor', strong = who === 'boss' || who === 'security' || m.big;
+  const panel = f.closest('.mentor');
   panel.dataset.who = who;
-  panel.classList.remove('ping', 'pressure'); void panel.offsetWidth;
+  panel.classList.remove('ping', 'pressure', 'soft'); void panel.offsetWidth;
+  if (!strong) {
+    panel.classList.add('soft');
+    clearTimeout(panel._pingT);
+    panel._pingT = setTimeout(() => panel.classList.remove('soft'), 1200);
+    return;
+  }
   panel.classList.add('ping');
   if (who === 'boss' || who === 'security') panel.classList.add('pressure');
   clearTimeout(panel._pingT);
   panel._pingT = setTimeout(() => panel.classList.remove('ping', 'pressure'), 3400);
-  spotlight(panel, who);
+  // dimming the whole floor is reserved for the board's announcements
+  if (who === 'boss') spotlight(panel, who);
 }
 function nextHint() {
   const G = UI.G, h = G.L.hints || [];
   if (!h.length) return;
   mentorSay(G, 'Hint: ' + h[UI.hintI++ % h.length]);
+  G.mentorQ[G.mentorQ.length - 1].now = true;
   updateHud();
 }
 
@@ -760,7 +817,7 @@ function showBrief() {
     <div class="eyebrow">Shift ${L.id} · ${esc(L.concept)}</div>
     <h2>${esc(L.title)}</h2>
     <p>${esc(L.hook)}</p>
-    <div class="section-h">Shift goals (${L.days} days)</div>
+    <div class="section-h">Shift targets</div>
     <ul>${L.goals.map(g => `<li>${esc(!g.reveal || g.reveal(G) ? g.label : 'Hidden until you find the problem')}</li>`).join('')}</ul>
     <p class="muted" style="font-size:12.5px">Click stations to inspect them. Not every tool helps, and some are traps.
     <span class="kbd">Space</span> pause · <span class="kbd">1</span><span class="kbd">2</span><span class="kbd">3</span> speed · <span class="kbd">B</span> board</p>
@@ -771,7 +828,7 @@ function showBrief() {
 function showEvent(ev) {
   const G = UI.G;
   const card = openModal(`
-    <div class="eyebrow">Day ${Math.floor(G.t)} · Decision</div>
+    <div class="eyebrow">Decision</div>
     <h2>${esc(ev.title)}</h2>
     <p>${esc(ev.body)}</p>
     ${ev.options.map((o, i) => `<button class="opt" data-o="${i}"><b>${esc(o.label)}</b><small>${esc(o.desc || '')}</small></button>`).join('')}`);
@@ -842,8 +899,8 @@ function showDebrief() {
   const card = openModal(`
     <div class="eyebrow">Shift ${L.id} · ${esc(L.title)}</div>
     <h2>${ok ? 'Shift complete' : 'The business lost patience'}</h2>
-    ${ok ? `<div class="big-stars">${starHtml(stars)}</div>` : `<p>Too many late deliveries and open incidents on day ${G.t.toFixed(1)}. Try again: the list below shows what to change.</p>`}
-    ${debriefScoreHtml(G, H, res)}
+    ${ok ? `<div class="big-stars">${starHtml(stars)} ${targetsChip(G, res)}</div>` : `<p>Too many late deliveries and open incidents after ${clockText(G, G.t)}. Try again: the list below shows what to change.</p>`}
+    ${H ? `<div class="section-h">What moved your numbers</div>${debriefCompareHtml(G, H)}` : debriefScoreHtml(G, H, res)}
     ${!ok && missed ? `<div class="try-next"><div class="eyebrow">Try next time</div>${missed}</div>` : ''}
     ${ok ? `<div class="reflect-card">
       <div class="eyebrow">Your turn · reflect</div>
@@ -852,8 +909,8 @@ function showDebrief() {
       <div id="reflOut"><p class="muted small-note">Answer to unlock your insight card${hasNext ? ' and the next shift' : ''}.</p></div>
     </div>` : ''}
     <div class="db-more">
-      ${H ? `<details data-charts><summary>Charts: you vs. the untouched factory</summary>${debriefCompareHtml(G, H)}</details>` : ''}
-      ${decs ? `<details><summary>Your decisions ${decisionSummary(G)}</summary>${decs}</details>` : ''}
+      ${H ? `<details><summary>Targets in detail ${targetsChip(G, res)}</summary>${debriefScoreHtml(G, H, res)}</details>` : ''}
+      ${decs ? `<details><summary>Why each decision worked or not ${decisionSummary(G)}</summary>${decs}</details>` : ''}
       ${ok && missed ? `<details><summary>Missed opportunities ${nMissed ? `<span class="sc-chip bad">${nMissed}</span>` : '<span class="sc-chip good">none</span>'}</summary>${missed}</details>` : ''}
     </div>
     <div class="modal-actions">
@@ -862,8 +919,7 @@ function showDebrief() {
       ${ok && hasNext ? `<button class="btn primary" data-next disabled>Next shift →</button>` : ''}
       ${ok && !hasNext ? `<button class="btn primary" data-deck disabled>See your insight deck</button>` : ''}
     </div>`, !!H);
-  const ch = card.querySelector('[data-charts]');
-  if (ch) ch.addEventListener('toggle', () => { if (ch.open) card.querySelectorAll('[data-cmp]').forEach(c => compareChart(c, G, H, c.dataset.cmp)); });
+  if (H) card.querySelectorAll('[data-cmp]').forEach(c => compareChart(c, G, H, c.dataset.cmp));
   card.querySelector('[data-menu]').onclick = showTitle;
   card.querySelector('[data-retry]').onclick = () => startLevel(L.id);
   const next = card.querySelector('[data-next]'), deck = card.querySelector('[data-deck]');
@@ -882,6 +938,11 @@ function showDebrief() {
     card.querySelector('.reflect-card').classList.add('answered');
     card.querySelector('#reflOut').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
+}
+
+function targetsChip(G, res) {
+  const met = res.filter(r => r.met).length;
+  return `<span class="sc-chip ${met === res.length ? 'good' : 'bad'}">${met} / ${res.length} targets</span>`;
 }
 
 function showDeck() {

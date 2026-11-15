@@ -492,21 +492,19 @@ function queueHeat(G, s) {
   if (q < 3 * v) return null;
   return { q, tr, heat: clamp((q - 2 * v) / (10 * v), 0, 1), growing: tr >= 2 * v, shrinking: tr <= -2 * v };
 }
+// Belt section under a pile: tinted yellow → red with its length, pulsing while it grows.
+function pileSpan(s) {
+  const n = s.q.length, cols = Math.ceil(n / LAYERS), sp = Math.min(.4, 2.5 / Math.max(1, cols));
+  return [s.x - .75 - cols * sp - .1, s.x - .45];
+}
 function drawQueueHeat(G, T) {
   for (const s of G.st) {
     const h = queueHeat(G, s);
     if (!h) continue;
-    const [sx, sy] = P(s.x - 1.4, BELT_Y + .2, 0);
-    const pulse = h.growing ? .55 + .45 * Math.sin(T * 6) : .7;
-    const a = (.35 + .5 * h.heat) * pulse;
-    const col = h.heat > .55 ? '255,60,80' : '255,185,60';
-    const r = 120 + 120 * h.heat;
-    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
-    g.addColorStop(0, `rgba(${col},${a})`);
-    g.addColorStop(.45, `rgba(${col},${a * .55})`);
-    g.addColorStop(1, `rgba(${col},0)`);
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.ellipse(sx, sy, r, r * .5, 0, 0, Math.PI * 2); ctx.fill();
+    const [x0, x1] = pileSpan(s);
+    const pulse = h.growing ? .65 + .35 * Math.sin(T * 6) : .85;
+    const col = h.heat > .55 ? '255,70,90' : '255,190,70';
+    poly([P(x0, 4.25, .21), P(x1, 4.25, .21), P(x1, 4.75, .21), P(x0, 4.75, .21)], `rgba(${col},${(.35 + .4 * h.heat) * pulse})`);
   }
 }
 
@@ -514,7 +512,7 @@ function drawOverlays(G, ui, T) {
   for (const s of G.st) {
     const h = queueHeat(G, s);
     if (!h || h.q < 4 * (G.v || 1)) continue;
-    const [qx, qy] = P(s.x - 1.5, BELT_Y, 1.75);
+    const [x0, x1] = pileSpan(s), [qx, qy] = P((x0 + x1) / 2 - .2, BELT_Y, 1.75);
     const txt = `${h.q} waiting${h.growing ? ' ▲' : h.shrinking ? ' ▼' : ''}`;
     pill(txt, qx, qy, h.heat > .55 ? PAL.bad : PAL.warn, h.heat > .55 ? '#ffffff' : '#2a2108');
   }

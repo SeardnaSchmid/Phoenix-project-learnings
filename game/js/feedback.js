@@ -95,7 +95,8 @@ function checkDecision(G, dec, silent) {
   const body = lines.length ? lineText(lines) : 'nothing moved yet';
   let end = { helped: dec.trap ? 'Looks like it\'s working… for now.' : 'It\'s working.', hurt: 'That made things worse.', neutral: 'No clear effect so far.' }[dec.measured];
   if (dec.measured !== 'helped' && dec.lag) end += ' ' + dec.lag;
-  mentorSay(G, `Effect check on "${dec.label}" (day ${dec.t.toFixed(1)}): ${body}. ${end}${dec.trap && dec.afterText ? ' ' + dec.afterText : ''}`);
+  // the result goes to the decision log only; the chatter feed stays for people talking
+  dec.checkText = `${body}. ${end}${dec.trap && dec.afterText ? ' ' + dec.afterText : ''}`;
 }
 
 function lineText(lines, html) {
@@ -137,11 +138,11 @@ function renderLog(G) {
     if (fresh) seenLog.set(key, performance.now());
     if (it.kind === 'you') {
       const pending = !d.measured;
-      return `<div class="msg you${fresh ? ' fresh' : ''}" data-k="${key}"><div class="msg-h">You · day ${d.t.toFixed(1)}</div>
-        <b>${esc(d.label)}</b>${pending ? `<div class="t-watch">Watch: ${esc(expectText(d.expect))}<span class="t-when"> · check on day ${(d.t + d.delay).toFixed(1)}</span></div><div class="typing"><i></i><i></i><i></i></div>` : ''}</div>`;
+      return `<div class="msg you${fresh ? ' fresh' : ''}" data-k="${key}"><div class="msg-h">You · ${clockText(G, d.t)}</div>
+        <b>${esc(d.label)}</b>${pending ? `<div class="t-watch">Watch: ${esc(expectText(d.expect))}<span class="t-when"> · check at ${clockText(G, d.t + d.delay * G.k)}</span></div><div class="typing"><i></i><i></i><i></i></div>` : ''}</div>`;
     }
     const v = VERDICT[d.measured];
-    return `<div class="msg check ${v.cls}${fresh ? ' fresh' : ''}" data-k="${key}"><div class="msg-h">Effect check · day ${(d.checkedAt ?? d.t).toFixed(1)}</div>
+    return `<div class="msg check ${v.cls}${fresh ? ' fresh' : ''}" data-k="${key}"><div class="msg-h">Effect check · ${clockText(G, d.checkedAt ?? d.t)}</div>
       <div class="re">re: ${esc(d.label)}</div><span class="vchip ${v.cls}">${v.label}</span>
       ${d.lines.length ? `<div class="t-lines">${lineText(d.lines, true)}</div>` : ''}</div>`;
   }).join('');
@@ -215,7 +216,7 @@ function sparkline(c, ts, data, col, days, decisions) {
 }
 function decisionTip(d) {
   const v = VERDICT[d.measured || 'pending'];
-  return `<b>Day ${d.t.toFixed(1)} · ${esc(d.label)}</b><br><span class="vchip ${v.cls}">${v.label}</span>` +
+  return `<b>${clockText(UI.G || { k: 1 }, d.t)} · ${esc(d.label)}</b><br><span class="vchip ${v.cls}">${v.label}</span>` +
     (d.lines.length ? `<div class="t-lines">${lineText(d.lines, true)}</div>` : (d.verdict ? '' : `<div>Watch: ${esc(expectText(d.expect))}</div>`));
 }
 function attachMarkerHover(c) {
@@ -255,24 +256,25 @@ function updatePatience(G) {
   bar.className = p > 50 ? 'good' : p > 25 ? 'warn' : 'bad';
   const block = $('#patBlock');
   block.classList.toggle('low', p <= 25);
-  const slope = patienceTrend(G), left = L.days - G.t, sub = $('#patSub');
+  const slope = patienceTrend(G), sub = $('#patSub');
   if (slope * G.k < -.8) {
-    const runout = p / -slope;
-    const danger = runout < left;
-    sub.className = 'pat-sub ' + (danger ? 'danger' : 'warn');
-    sub.textContent = `▼ ${(-slope).toFixed(1)}/day · empty in ~${runout.toFixed(1)} days${danger ? ' (before the shift ends!)' : ''}`;
+    // shown in play time, never in days: how long until the shift fails at this pace
+    const secs = p / -slope * daySec(G);
+    sub.className = 'pat-sub ' + (secs < 30 ? 'danger' : 'warn');
+    sub.textContent = secs > 120 ? '▼ falling slowly' : `▼ falling · runs out in ~${Math.round(secs)}s${secs < 30 ? ', act now!' : ''}`;
   } else if (slope * G.k > .8) {
     sub.className = 'pat-sub good';
-    sub.textContent = `▲ +${slope.toFixed(1)}/day · business is happy`;
+    sub.textContent = '▲ rising · business is happy';
   } else {
     sub.className = 'pat-sub';
-    sub.textContent = `steady · ${left.toFixed(1)} days left in shift`;
+    sub.textContent = 'steady';
   }
   // why it moves
   const parts = [];
   if (G.patDrain.incidents > 0) parts.push(`open incidents −${G.patDrain.incidents.toFixed(0)}/day`);
   if (G.patDrain.backlog > 0) parts.push(`huge backlog −${G.patDrain.backlog.toFixed(1)}/day`);
   if (G.patDrain.wip > 0) parts.push(`too much in progress −${G.patDrain.wip.toFixed(1)}/day`);
+  if (G.patDrain.debt > 0) parts.push(`fragile systems (tech debt) −${G.patDrain.debt.toFixed(1)}/day`);
   const agg = {};
   for (const e of G.patLog) { const a = agg[e.reason] = agg[e.reason] || { n: 0, d: 0 }; a.n++; a.d += e.d; }
   const recent = Object.entries(agg).map(([r, a]) => `${a.d > 0 ? '+' : ''}${a.d.toFixed(1)} from ${a.n} ${r}${a.n > 1 && !r.endsWith('decision') ? 's' : ''}`);
@@ -281,15 +283,19 @@ function updatePatience(G) {
     (parts.length ? `<br><br><b>Draining right now:</b> ${parts.join(', ')}` : '') +
     (recent.length ? `<br><b>Last day:</b> ${recent.join(', ')}` : '');
   // floating deltas
-  if (G.patFx.length) {
-    const agg2 = {};
-    for (const e of G.patFx) { const a = agg2[e.reason] = agg2[e.reason] || { n: 0, d: 0 }; a.n++; a.d += e.d; }
-    G.patFx.length = 0;
+  UI.pfx = UI.pfx || { acc: {}, at: 0 };
+  for (const e of G.patFx) { const a = UI.pfx.acc[e.reason] = UI.pfx.acc[e.reason] || { n: 0, d: 0 }; a.n++; a.d += e.d; }
+  G.patFx.length = 0;
+  const nowMs = performance.now();
+  if (Object.keys(UI.pfx.acc).length && nowMs - UI.pfx.at > 1000) {
+    const agg2 = UI.pfx.acc;
+    UI.pfx = { acc: {}, at: nowMs };
     const box = $('#patFx');
     for (const [r, a] of Object.entries(agg2)) {
       const el = document.createElement('span');
       el.className = 'pfx ' + (a.d >= 0 ? 'up' : 'down');
-      el.textContent = `${a.d > 0 ? '+' : ''}${a.d.toFixed(1)} ${r}`;
+      if (Math.abs(a.d) < .05) continue;
+      el.textContent = `${a.d > 0 ? '+' : ''}${a.d.toFixed(1)} ${r}${a.n > 1 && !r.endsWith('decision') ? 's' : ''}`;
       box.appendChild(el);
       setTimeout(() => el.remove(), 2200);
     }
@@ -310,7 +316,7 @@ function compareChart(c, G, H, key) {
   const css = getComputedStyle(document.body);
   const muted = css.getPropertyValue('--muted').trim(), accent = css.getPropertyValue('--accent').trim();
   const m = kmeta(key), col = PAL.crate[m.color] || accent;
-  const days = G.L.days, padL = 4, padB = 16, padT = 8;
+  const days = Math.max(G.t, H.t, 1), padL = 4, padB = 16, padT = 10;
   const all = [...(G.series[key] || []), ...(H.series[key] || [])].filter(v => v != null);
   const goal = G.L.goals.find(x => x.kpi === key);
   let mx = Math.max(...all, goal ? goal.val : 0, 1e-6) * 1.12;
@@ -320,7 +326,7 @@ function compareChart(c, G, H, key) {
   g.strokeStyle = muted; g.globalAlpha = .25; g.lineWidth = 1;
   g.beginPath(); g.moveTo(padL, Y(0)); g.lineTo(w - padL, Y(0)); g.stroke();
   g.globalAlpha = .8;
-  for (let d = 0; d <= days; d += 2) g.fillText('d' + d, clamp(X(d), 10, w - 10), h - 3);
+  for (let i = 0; i <= 4; i++) g.fillText(clockText(G, days * i / 4), clamp(X(days * i / 4), 14, w - 14), h - 3);
   g.globalAlpha = 1;
   if (goal) {
     g.strokeStyle = accent; g.setLineDash([3, 4]); g.lineWidth = 1.2;
@@ -328,13 +334,17 @@ function compareChart(c, G, H, key) {
     g.setLineDash([]);
     g.fillStyle = accent; g.textAlign = 'right'; g.fillText('goal', w - padL - 2, Y(goal.val) - 3);
   }
-  for (const d of G.decisions) {
-    const x = X(d.t);
-    g.strokeStyle = markerColor(d); g.globalAlpha = .55; g.setLineDash([2, 3]); g.lineWidth = 1;
-    g.beginPath(); g.moveTo(x, padT); g.lineTo(x, Y(0)); g.stroke();
-    g.setLineDash([]); g.globalAlpha = 1;
-    g.fillStyle = markerColor(d); g.beginPath(); g.arc(x, padT, 3, 0, Math.PI * 2); g.fill();
-  }
+  G.decisions.forEach((d, i) => {
+    const x = X(d.t), aimed = d.expect && key in d.expect;
+    g.strokeStyle = markerColor(d); g.globalAlpha = aimed ? .75 : .25; g.setLineDash([2, 3]); g.lineWidth = aimed ? 1.4 : 1;
+    g.beginPath(); g.moveTo(x, padT + 7); g.lineTo(x, Y(0)); g.stroke();
+    g.setLineDash([]);
+    g.globalAlpha = aimed ? 1 : .4;
+    g.fillStyle = markerColor(d); g.beginPath(); g.arc(x, padT + 1, 7, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#10131f'; g.font = '700 9px Inter, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(String(i + 1), x, padT + 1.5);
+    g.textBaseline = 'alphabetic'; g.font = '10px Inter, system-ui, sans-serif'; g.globalAlpha = 1;
+  });
   const line = (S, ts, color, width, dash) => {
     g.beginPath(); let st = false;
     (S || []).forEach((v, i) => { if (v == null) return; const x = X(ts[i]), y = Y(v); st ? g.lineTo(x, y) : g.moveTo(x, y); st = true; });
@@ -346,13 +356,27 @@ function compareChart(c, G, H, key) {
 
 function debriefCompareHtml(G, H) {
   const keys = [...G.L.kpis, 'patience'];
-  const ghostNote = H.ended === 'failed' ? ` The untouched factory lost the business on day ${H.t.toFixed(1)}.` : '';
+  const ghostNote = H.ended === 'failed' ? ` The untouched factory lost the business after ${clockText(H, H.t)}.` : '';
   return `<p class="muted" style="font-size:13px">Same shift, same random events, same event choices, but no toolbox actions. <span class="leg you"></span>you <span class="leg ghost"></span>untouched <span class="leg mk"></span>your decisions.${ghostNote}</p>
     <div class="cmp-grid">${keys.map(k => {
       const m = kmeta(k), you = lastVal(G.series[k]), gh = lastVal(H.series[k]);
       const f = v => v == null ? '–' : m.fmt(v);
-      return `<div class="cmp"><div class="cmp-h"><b>${esc(m.label)}</b><span>you <b>${f(you)}</b> · untouched <b>${f(gh)}</b></span></div><canvas data-cmp="${k}"></canvas></div>`;
-    }).join('')}</div>`;
+      let chip = '';
+      if (you != null && gh != null) {
+        const d = (you - gh) * KPI_DIR[k];
+        chip = Math.abs(you - gh) < kpiScale(G, k) ? '<span class="sc-chip">≈ same</span>' : d > 0 ? '<span class="sc-chip good">▲ better</span>' : '<span class="sc-chip bad">▼ worse</span>';
+      }
+      return `<div class="cmp"><div class="cmp-h"><b>${esc(m.label)}</b><span>you <b>${f(you)}</b> · untouched <b>${f(gh)}</b> ${chip}</span></div><canvas data-cmp="${k}"></canvas></div>`;
+    }).join('')}</div>${decisionKeyHtml(G)}`;
+}
+// The numbered markers in the charts, explained: what you did and what it moved.
+function decisionKeyHtml(G) {
+  if (!G.decisions.length) return '<p class="muted" style="font-size:13px">You made no decisions: your line is the untouched factory.</p>';
+  return `<ol class="dec-key">${G.decisions.map((d, i) => {
+    const v = VERDICT[d.verdict] || VERDICT.info;
+    return `<li><span class="dk-n" style="background:${markerColor(d)}">${i + 1}</span><span class="dk-t">${clockText(G, d.t)}</span>
+      <b>${esc(d.label)}</b><span class="vchip ${v.cls}">${v.label}</span>${d.lines.length ? `<div class="t-lines">${lineText(d.lines, true)}</div>` : ''}</li>`;
+  }).join('')}</ol>`;
 }
 
 function debriefDecisionsHtml(G) {
@@ -364,7 +388,7 @@ function debriefDecisionsHtml(G) {
   const rows = list.map(d => {
     const v = VERDICT[d.verdict];
     const measuredNote = d.verdict === 'trap' && d.lines.some(l => !l.context) ? `<div class="m-note">Measured: ${VERDICT[d.measured].label.toLowerCase()}</div>` : '';
-    return `<div class="dec ${v.cls}"><span class="day">day ${d.t.toFixed(1)}</span><div class="dec-b">
+    return `<div class="dec ${v.cls}"><span class="day">${clockText(G, d.t)}</span><div class="dec-b">
       <div class="dec-h"><b>${esc(d.label)}</b><span class="vchip ${v.cls}">${v.label}</span></div>
       ${d.lines.length ? `<div class="t-lines">${lineText(d.lines, true)}</div>` : ''}${measuredNote}
       ${d.why ? `<div class="why">${esc(d.why)}</div>` : ''}

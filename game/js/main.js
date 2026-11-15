@@ -139,6 +139,7 @@ $('#btnReset').onclick = () => {
   UI.save = { theme: UI.save.theme }; persist(); renderTitle();
 };
 $('#btnBrief').onclick = showBrief;
+$('#btnEnd').onclick = confirmEnd;
 
 // ---------- boot ----------
 applyTheme(UI.save.theme || 'dark');

@@ -5,6 +5,8 @@ const DAY_SEC = 8;
 // Some shifts run more, shorter days (tScale k): a day lasts DAY_SEC / k seconds. Visual timers,
 // patience and KPI windows scale with k, so the shift feels the same but has k× more flow to measure.
 function daySec(G) { return DAY_SEC / (G.k || 1); }
+// The player never sees days: in-game time is shown as a play clock (m:ss at 1× speed).
+function clockText(G, t) { const s = Math.max(0, Math.round(t * daySec(G))); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 // Volume (vScale v): v× more items, each done v× faster. Lead times stay, piles and throughput grow v×.
 // Per-item effects (patience, budget, crowding) are divided by v so the totals stay comparable.
 const BELT_Y = 4.35, BELT_Z = .2, BELT_SPEED = 30, LAYERS = 4;
@@ -81,7 +83,7 @@ function buildGame(L, opts, seed, rng) {
     debt: L.debt ?? 10, debtShare: L.debtShare ?? (L.mix ? L.mix.int : .2),
     fq: L.fq ?? .4, batch: L.batch ?? 1,
     flags: Object.assign({}, L.flags || {}), owned: {}, locks: {},
-    toolUses: {}, decisions: [], choices: {}, patFx: [], patLog: [], patDrain: { incidents: 0, backlog: 0, wip: 0 }, pulses: [], fx: [],
+    toolUses: {}, decisions: [], choices: {}, patFx: [], patLog: [], patDrain: { incidents: 0, backlog: 0, wip: 0, debt: 0 }, pulses: [], fx: [],
     stats: { delivered: [], resolved: [], deploys: [], mttr: [], reworks: 0, interruptions: 0 },
     incidents: [], pending: [],
     arrivalT: .15, fireT: rnd(.4, 1.2), shadowT: rnd(.2, .8), releaseCd: 0,
@@ -661,7 +663,13 @@ function updateInner(G, dt) {
   // everything started, nothing finished: the business feels a crowded floor directly
   const wd = L.wipDrain, fw = wd ? floorWip(G) : 0;
   G.patDrain.wip = wd && fw > wd.over * G.v ? (fw - wd.over * G.v) * wd.rate / G.v : 0;
-  G.patience = clamp(G.patience - (G.patDrain.incidents + G.patDrain.backlog + G.patDrain.wip) * dt / G.k, 0, 100);
+  // fragile systems: past a point, tech debt shows up as slowness and glitches customers notice
+  const dd = L.debtDrain;
+  G.patDrain.debt = dd && G.debt > dd.over ? (G.debt - dd.over) * dd.rate : 0;
+  // unresolved problems wear the business down: these drains grow over the shift
+  const esc = 1 + G.t / L.days;
+  G.patDrain.wip *= esc; G.patDrain.debt *= esc;
+  G.patience = clamp(G.patience - (G.patDrain.incidents + G.patDrain.backlog + G.patDrain.wip + G.patDrain.debt) * dt / G.k, 0, 100);
 
   // debt
   if (L.debtSlider && G.locks.debt > G.t) G.debtShare = 0;
@@ -685,7 +693,8 @@ function updateInner(G, dt) {
   }
   for (const e of G.events) if (!e.done && G.t >= e.day && !G.pendingModal) { e.done = true; G.pendingModal = { type: 'event', ev: e }; }
   if (G.patience <= 0) G.ended = 'failed';
-  else if (G.t >= L.days) G.ended = 'complete';
+  // only guided shifts have a fixed length; real shifts run until the targets are reached or patience runs out
+  else if ((L.tutorial || L.tour) && G.t >= L.days) G.ended = 'complete';
 }
 
 function moveCrates(G, dt) {
