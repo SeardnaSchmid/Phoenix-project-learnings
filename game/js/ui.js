@@ -706,7 +706,13 @@ function updateStationPanel(rebuild) {
     const mult = u >= .99 ? '∞' : (u / (1 - u)).toFixed(1);
     html += `<div class="sp-row"><span>Utilization (busiest worker)</span><b>${Math.round(u * 100)}%</b></div>`;
     html += `<div class="sp-row"><span>Waiting · working · done-waiting</span><b>${s.q.length} · ${inProg} · ${s.out.length}</b></div>`;
-    if (s.kind === 'qa' && s.rack) html += `<div class="sp-row"><span>Epic parts waiting for the rest</span><b>${s.rack.length}</b></div>`;
+    if (s.rack && s.rack.length) html += `<div class="sp-row"><span>Epic parts waiting for the rest</span><b>${s.rack.length}</b></div>`;
+    if (s.kind === 'backlog') {
+      const parts = s.q.filter(c => c.part), by = {};
+      for (const c of parts) by[c.team.name] = (by[c.team.name] || 0) + 1;
+      html += `<p class="sp-note">Teams pull from here when they have room. A growing pile means more demand than capacity.</p>`;
+      html += Object.entries(by).map(([n, v]) => `<div class="sp-row"><span>Epic parts for ${esc(n)}</span><b>${v}</b></div>`).join('');
+    }
     if (G.L.showHero && s.heroProb > 0) html += `<div class="sp-row"><span>Items needing the hero</span><b>${Math.round(s.heroProb * 100)}%</b></div>`;
     if (s.key === 'ops' && G.batch > 1) html += `<div class="sp-row"><span>Deploy batch size</span><b>${G.batch}</b></div>`;
     html += `<div class="sp-wait"><div class="f">Expected wait = busy ÷ idle</div><div class="big">≈ ${mult}× work time</div><canvas></canvas></div>`;

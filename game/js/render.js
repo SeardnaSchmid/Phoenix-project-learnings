@@ -333,7 +333,8 @@ function crateGlyph(type, sx, sy, col) {
 function drawCrate(G, c, T) {
   const col = crateColor(G, c);
   if (c.state === 'fall') shadowEll(c.x + .15, c.y + .15, BELT_Z, .35, Math.max(.2, 1 - c.z / 7));
-  box(c.x, c.y, c.z, .3, .3, .3, col, true);
+  const sz = c.big ? .42 : c.part ? .24 : .3;
+  box(c.x, c.y, c.z, sz, sz, sz, col, true);
   ctx.strokeStyle = mix(col, '#000000', .22); ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(...P(c.x + .15, c.y, c.z + .3)); ctx.lineTo(...P(c.x + .15, c.y + .3, c.z + .3)); ctx.stroke();
   if (c.classified) {

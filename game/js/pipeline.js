@@ -7,11 +7,12 @@
 //   "A -> B"       one after the other
 //   "A | B"        whichever of A or B has less load
 //   "A?"           optional step (station.share = chance it is needed, default .5)
-//   "{A, B, C}"    split an epic into parts for several teams; the next station joins them
+//   "{A, B, C}"    split an epic into parts for several teams; a station with join: true reunites them
 //   "!expedite"    (at the end) this work jumps every queue
+// A station of kind "backlog" has no people: teams pull work (and epic parts) from it when they have room.
 
 const PIPE = { colW: 3.3, rowH: 2.45, left: 2.2 };
-const STATION_TIME = { intake: 0, refine: .5, design: .8, dev: 1, qa: .4, gate: .05, deploy: .04, env: .3 };
+const STATION_TIME = { intake: 0, backlog: 0, refine: .5, triage: .15, design: .8, dev: 1, qa: .4, gate: .05, deploy: .04, env: .3 };
 
 // ---------- parse & layout ----------
 function parseRoute(str) {
@@ -32,7 +33,7 @@ function compilePipeline(cfg) {
       id, key: id, name: def.label || id, kind: def.kind || kind, def, i: st.length,
       q: [], out: [], rack: [], limit: null, u: 0, heroProb: 0, x: 0, y: 0, depth: 0,
     };
-    const n = s.kind === 'intake' ? 0 : def.workers ?? (s.kind === 'gate' || s.kind === 'deploy' ? 1 : 2);
+    const n = s.kind === 'intake' || s.kind === 'backlog' ? 0 : def.workers ?? (s.kind === 'gate' || s.kind === 'deploy' ? 1 : 2);
     s.workers = Array.from({ length: n }, (_, k) => ({ kind: 'normal', shirt: k, cur: null, timer: 0, dur: 0, u: 0 }));
     st.push(s); byId[id] = s;
   };
@@ -168,7 +169,7 @@ function sendTo(G, c, from, to) {
 function arrivePipe(G, c) {
   const s = c.dest;
   if (!s) return deliverPipe(G, c);
-  if (s.kind === 'qa' && c.epic && c.part) {
+  if (s.def.join && c.epic && c.part) {
     // join: epic parts wait on the rack until the whole epic is there
     c.state = 'rack'; s.rack.push(c);
     c.epic.arrived.push(c);
@@ -177,7 +178,7 @@ function arrivePipe(G, c) {
       s.rack = s.rack.filter(x => !parts.includes(x));
       parts.forEach(x => { x.state = 'done'; });
       const m = pipeCrate(G, c.type, c.epic.released);
-      Object.assign(m, { epicDone: true, epicN: c.epic.n, si: c.si, lastDev: c.lastDev, x: c.x, y: c.y, defect: parts.some(x => x.defect), state: 'queue', loc: s.i, dest: s });
+      Object.assign(m, { big: true, epicDone: true, epicN: c.epic.n, si: c.si, lastDev: c.lastDev, x: c.x, y: c.y, defect: parts.some(x => x.defect), state: 'queue', loc: s.i, dest: s });
       G.crates.push(m); s.q.push(m);
     }
     return;
@@ -189,6 +190,42 @@ function arrivePipe(G, c) {
   } else s.q.push(c);
 }
 
+// Teams pull from the backlog only when they have room; epics turn into parts here.
+function hasRoom(s) { return s.q.length + s.workers.filter(w => w.cur).length < s.workers.length + (s.def.buffer ?? 1); }
+function epicParts(G, c, step) {
+  let teams = step.ids.map(id => G.pipe.byId[id]).filter(s => s && rand() < (s.def.share ?? .7));
+  if (!teams.length) teams = [G.pipe.byId[step.ids[0]]];
+  const epic = { id: ++G.epicN, n: teams.length, arrived: [], released: c.released };
+  return teams.map(team => {
+    const p = pipeCrate(G, c.type, c.released);
+    return Object.assign(p, { epic, part: true, team, x: c.x, y: c.y, z: c.z, state: 'queue', loc: c.loc });
+  });
+}
+function pullFromBacklog(G, s) {
+  const R = G.pipe.routes;
+  for (let k = 0; k < s.q.length;) {
+    const c = s.q[k], idx = c.si + 1, step = R[c.type].steps[idx];
+    if (!step) { s.q.splice(k, 1); routeNext(G, c, s); continue; }
+    if (step.kind === 'split' && !c.part) {
+      const parts = epicParts(G, c, step);
+      parts.forEach(p => { p.si = idx; G.crates.push(p); });
+      c.state = 'done';
+      s.q.splice(k, 1, ...parts);
+      continue;
+    }
+    let cands = c.part ? [c.team] : step.ids.map(id => G.pipe.byId[id]).filter(Boolean);
+    if (step.kind === 'opt' && !c.part) {
+      if (c.optSkip == null) c.optSkip = rand() > (cands[0].def.share ?? .5);
+      if (c.optSkip) { c.si = idx; c.optSkip = null; continue; }
+    }
+    const free = cands.filter(hasRoom).sort((a, b) => pipeLoad(a) / Math.max(1, a.workers.length) - pipeLoad(b) / Math.max(1, b.workers.length));
+    if (!free.length) { k++; continue; }
+    s.q.splice(k, 1);
+    if (!c.part) c.si = idx;
+    sendTo(G, c, s, free[0]);
+  }
+}
+
 function finishPipe(G, s, w) {
   const c = w.cur; w.cur = null;
   const d = s.def;
@@ -196,12 +233,20 @@ function finishPipe(G, s, w) {
     if (s.kind === 'dev') c.defect = rand() < (d.defectRate ?? .12) * (c.rework ? .3 : 1);
     c.lastDev = s;
   }
-  if (s.kind === 'refine' && rand() < (d.rejectRate ?? 0) * (c.rejected ? .4 : 1)) {
-    // requirements not good enough: back to whoever asked
-    c.rejected = true; c.si = -1;
+  // gatekeepers: some work is sent back (rejectTo a station) or dropped (rejectTo "drop")
+  const rr = (d.rejectRates && d.rejectRates[c.type]) ?? (d.rejectRate ?? 0);
+  if (rr && rand() < rr * (c.rejected ? .4 : 1)) {
+    c.rejected = true;
+    if (d.rejectTo === 'drop') {
+      c.state = 'done'; G.stats.dropped = (G.stats.dropped || 0) + 1;
+      spark(G, s.x, s.y, .6, PAL.gray, 6);
+      return;
+    }
     const back = G.pipe.byId[d.rejectTo] || G.st.find(x => x.kind === 'intake' && x.def.type === c.type);
+    const idx = G.pipe.routes[c.type].steps.findIndex(st => st.ids.includes(back.id));
+    c.si = idx; // the station it goes back to continues the route from there
+    if (back.kind === 'intake') { c.si = -1; c.backToIntake = true; }
     sendTo(G, c, s, back);
-    c.backToIntake = true;
     return;
   }
   if (s.kind === 'qa' && c.defect && rand() < (d.detect ?? .6)) {
@@ -245,7 +290,7 @@ function pipelineUpdate(G, dt) {
     while (G.arrive[s.id] <= 0) {
       G.arrive[s.id] += (1 / (s.def.rate || 1)) * rnd(.6, 1.4);
       const c = pipeCrate(G, s.def.type);
-      c.loc = s.i; c.state = 'intake'; c.x = s.x - .5; c.y = s.y; c.z = 1.5;
+      c.loc = s.i; c.state = 'intake'; c.x = s.x - .5; c.y = s.y; c.z = 1.5; c.big = c.type === 'biz';
       s.q.push(c); G.crates.push(c);
     }
   }
@@ -273,6 +318,7 @@ function pipelineUpdate(G, dt) {
   // stations
   for (const s of G.st) {
     if (s.kind === 'intake') continue;
+    if (s.kind === 'backlog') { pullFromBacklog(G, s); continue; }
     for (const w of s.workers) {
       w.u += ((w.cur ? 1 : 0) - w.u) * Math.min(1, dt);
       if (w.cur) {
@@ -315,7 +361,8 @@ function movePipeCrates(G, dt) {
   }
   for (const s of G.st) {
     s.q.forEach((c, k) => {
-      const [tx, ty, tz] = s.kind === 'intake' ? [s.x - .55 + (k % 3) * .36, s.y - .4 + (Math.floor(k / 3) % 3) * .36, .12 + Math.floor(k / 9) * .3] : pipeSlot(s, k);
+      const [tx, ty, tz] = s.kind === 'intake' ? [s.x - .55 + (k % 3) * .36, s.y - .4 + (Math.floor(k / 3) % 3) * .36, .12 + Math.floor(k / 9) * .3]
+        : s.kind === 'backlog' ? [s.x - .85 + (k % 6) * .32, s.y - .7 + (Math.floor(k / 6) % 4) * .36, .14 + Math.floor(k / 24) * .26] : pipeSlot(s, k);
       c.x = lerp(c.x, tx, kk); c.y = lerp(c.y, ty, kk); c.z = lerp(c.z, tz, kk);
     });
     s.rack.forEach((c, k) => {
@@ -384,7 +431,7 @@ function drawPipeline(G, ui) {
   }
   // queue heat under piles
   for (const s of G.st) {
-    if (s.kind === 'intake' || s.q.length < 3) continue;
+    if (s.kind === 'intake' || s.kind === 'backlog' || s.q.length < 3) continue;
     const heat = clamp((s.q.length - 2) / 10, 0, 1), cols = Math.ceil(s.q.length / 6);
     const col = heat > .55 ? '255,70,90' : '255,190,70';
     poly([P(s.x - 1.2 - cols * .34, s.y - .45, .02), P(s.x - 1.15, s.y - .45, .02), P(s.x - 1.15, s.y + .45, .02), P(s.x - 1.2 - cols * .34, s.y + .45, .02)],
@@ -414,7 +461,8 @@ function drawPipeline(G, ui) {
     } else if (s.kind === 'qa') {
       add(x + y - .9, () => { box(x - .8, y - .85, .12, 1.6, .25, .3, PAL.desk); box(x - .8, y - .85, .45, 1.6, .25, .05, PAL.desk); });
     }
-    if (s.kind !== 'intake' && s.kind !== 'gate' && s.kind !== 'deploy') {
+    if (s.kind === 'backlog') add(x + y - .9, () => box(x - .95, y - .85, .12, 1.9, .12, .7, PAL.machine));
+    if (s.kind !== 'intake' && s.kind !== 'gate' && s.kind !== 'deploy' && s.kind !== 'backlog') {
       add(x + y + .05, () => box(x - .75, y + .15, .12, 1.5, .35, .34, PAL.desk));
       s.workers.forEach((w, k2) => {
         const sp = workerSlot(s, k2);
@@ -437,7 +485,7 @@ function drawPipeline(G, ui) {
   for (const p of G.sparks) { const [sx, sy] = P(p.x, p.y, p.z); ctx.fillStyle = p.col; ctx.fillRect(sx - 1.5, sy - 1.5, 3, 3); }
   for (const s of G.st) {
     const [sx, sy] = P(s.x, s.y - .3, 2.2);
-    if (s.kind !== 'intake') {
+    if (s.kind !== 'intake' && s.kind !== 'backlog') {
       const u = s.u, col = u < .7 ? PAL.good : u < .9 ? PAL.warn : PAL.bad;
       ctx.lineWidth = 4; ctx.strokeStyle = PAL.track;
       ctx.beginPath(); ctx.arc(sx, sy - 22, 13, 0, Math.PI * 2); ctx.stroke();
@@ -446,13 +494,17 @@ function drawPipeline(G, ui) {
       ctx.fillText(Math.round(u * 100) + '%', sx, sy - 21.5);
     }
     const n = s.workers.length;
-    pill(s.name + (n > 6 ? ` · ${n} people` : ''), sx, sy + 4, null);
-    const waiting = s.q.length + (s.kind === 'qa' ? s.rack.length : 0);
-    if (s.kind !== 'intake' && waiting >= 4) {
+    pill(s.name + (n > 6 ? ` · ${n} people` : '') + (s.kind === 'backlog' ? ` · ${s.q.length} items` : ''), sx, sy + 4, s.kind === 'backlog' && s.q.length > 20 ? PAL.warn : null, s.kind === 'backlog' && s.q.length > 20 ? '#2a2108' : null);
+    if (s.kind === 'refine') {
+      const epics = s.q.length + s.workers.filter(w => w.cur).length;
+      if (epics) { const [ex, ey] = P(s.x + .3, s.y + 1.1, .25); pill(`${epics} epic${epics > 1 ? "s" : ""} here`, ex, ey, PAL.crate.biz); }
+    }
+    const waiting = s.q.length;
+    if (s.kind !== 'intake' && s.kind !== 'backlog' && s.kind !== 'refine' && waiting >= 4) {
       const [qx, qy] = P(s.x - 1.6, s.y, 1.5);
       pill(`${waiting} waiting`, qx, qy, waiting >= 10 ? PAL.bad : PAL.warn, waiting >= 10 ? '#ffffff' : '#2a2108');
     }
-    if (s.kind === 'qa' && s.rack.length) {
+    if (s.rack.length) {
       const epics = new Set(s.rack.map(c => c.epic.id)).size;
       const [rx, ry] = P(s.x + .2, s.y - .9, 1.9);
       pill(`${epics} epic${epics > 1 ? 's' : ''} waiting for parts`, rx, ry, PAL.crate.biz);
@@ -474,26 +526,28 @@ function beltLine(pts, tint) {
 const YOUR_FACTORY = {
   name: 'Your Factory',
   intakes: {
-    Projects: { label: 'Projects (priority list)', type: 'biz', rate: 1.1 },
+    Market: { label: 'Market & stakeholders', type: 'biz', rate: 1.35 },
     Internal: { label: 'Internal projects', type: 'int', rate: .3 },
-    Changes: { label: 'QA: changes & bugfixes', type: 'chg', rate: 1.2 },
+    Changes: { label: 'Changes & bugfixes', type: 'chg', rate: 1.4 },
     Urgent: { label: 'Urgent from the field', type: 'unp', rate: .25 },
   },
   routes: {
-    biz: 'UIUX? -> PM -> {Core, WebBackend, DevOps} -> QA -> CI -> Deploy',
-    int: 'DevOps | QA -> CI -> Deploy',
-    chg: 'Core | WebBackend -> CI -> Deploy',
-    unp: 'Core | WebBackend | DevOps -> CI -> Deploy !expedite',
+    biz: 'PdM -> RA -> Backlog -> {UIUX, Core, WebBackend, DevOps} -> CI -> Release',
+    int: 'Backlog -> DevOps | Core -> CI -> Release',
+    chg: 'QA -> Backlog -> Core | WebBackend -> CI -> Release',
+    unp: 'QA -> Core | WebBackend | DevOps -> CI -> Release !expedite',
   },
   stations: {
-    UIUX: { kind: 'design', label: 'UI/UX', workers: 1, time: 1.2, share: .5 },
-    PM: { kind: 'refine', label: 'Project managers', workers: 5, time: 1.5, rejectRate: .15, rejectTo: 'Projects' },
-    Core: { kind: 'dev', label: 'Core', workers: 12, time: 6, share: .9, times: { chg: .8, unp: .5 } },
+    PdM: { kind: 'refine', label: 'Product management', workers: 3, time: 1.2 },
+    RA: { kind: 'refine', label: 'Process Masters', workers: 4, time: 1.5, rejectRate: .2, rejectTo: 'PdM' },
+    QA: { kind: 'triage', label: 'QA gate', workers: 2, time: .2, times: { unp: .02 }, rejectRates: { chg: .2 }, rejectTo: 'drop' },
+    Backlog: { kind: 'backlog', label: 'Project backlog' },
+    UIUX: { kind: 'dev', label: 'UI/UX', workers: 1, time: 1.2, share: .5, defectRate: .05 },
+    Core: { kind: 'dev', label: 'Core', workers: 12, time: 6, share: .9, times: { chg: .8, unp: .5, int: 2 } },
     WebBackend: { kind: 'dev', label: 'Web / Backend', workers: 4, time: 4.5, share: .7, times: { chg: .8, unp: .5 } },
     DevOps: { kind: 'dev', label: 'DevOps', workers: 5, time: 3, share: .4, times: { int: 2, unp: .5 } },
-    QA: { kind: 'qa', label: 'QA', workers: 2, time: .6, times: { chg: .15, int: .5 } },
     CI: { kind: 'gate', label: 'CI/CD → main', time: .05, failRate: .1 },
-    Deploy: { kind: 'deploy', label: 'Release / deploy', time: .04 },
+    Release: { kind: 'deploy', label: 'Release', time: .04, join: true },
   },
   feedback: { escapedDefects: 'Urgent' },
 };
@@ -507,7 +561,7 @@ LEVELS.push({
   kpis: ['lead', 'thr', 'wip', 'unp'], tools: [], goals: [],
   mentor: [
     { id: 'a', when: G => G.t > .6, text: 'This is your factory, drawn from a document. Click any station to inspect it. Where does work wait longest?' },
-    { id: 'b', when: G => G.st.some(s => s.rack && s.rack.length >= 4), text: 'Look at QA: finished parts sitting on the rack, waiting for the rest of their epic. Which team is everybody waiting for?' },
+    { id: 'b', when: G => G.st.some(s => s.rack && s.rack.length >= 4), text: 'Look at Release: finished parts sitting on the rack, waiting for the rest of their epic. Which team is everybody waiting for?' },
   ],
   hints: ['Piles in front of a station mean it is the constraint, or close to it.', 'Epics finish only when their slowest part is done.'],
   insight: {
@@ -531,8 +585,8 @@ function showPipelineLoader() {
     <div class="eyebrow">Sandbox · shift 8</div>
     <h2>Load your pipeline</h2>
     <p class="muted" style="font-size:13px">Describe intakes, stations and the route each type of work takes. Routes: <code>A -> B</code> in order,
-      <code>A | B</code> either one, <code>A?</code> optional, <code>{A, B}</code> split an epic into parts (the next station joins them), <code>!expedite</code> jumps queues.
-      Station kinds: <code>refine</code>, <code>design</code>, <code>dev</code>, <code>qa</code>, <code>gate</code>, <code>deploy</code>.</p>
+      <code>A | B</code> either one, <code>A?</code> optional, <code>rejectTo</code> a station or <code>"drop"</code> for gatekeepers, <code>{A, B}</code> split an epic into parts (the next station joins them), <code>!expedite</code> jumps queues.
+      Station kinds: <code>refine</code>, <code>triage</code>, <code>backlog</code> (teams pull from it), <code>dev</code>, <code>gate</code>, <code>deploy</code>; <code>join: true</code> reunites epic parts.</p>
     <textarea id="pipeText" class="pipe-text" spellcheck="false">${esc(cur)}</textarea>
     <div id="pipeErr" class="feedback no hidden"></div>
     <div class="modal-actions">
