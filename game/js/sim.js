@@ -345,7 +345,7 @@ function deliver(G, c) {
     return;
   }
   const onTime = lead <= (G.L.sla ?? 4);
-  patienceHit(G, (onTime ? 1.5 : -(G.L.latePenalty ?? 1.5)) / G.k / G.v, onTime ? 'on-time delivery' : 'late delivery');
+  patienceHit(G, (onTime ? (G.L.onTimeBonus ?? 1.5) : -(G.L.latePenalty ?? 1.5)) / G.k / G.v, onTime ? 'on-time delivery' : 'late delivery');
   G.budget += (G.L.income ?? .5) / G.k / G.v;
   if (G.L.debtDyn) {
     if (c.type === 'biz') G.debt += G.L.debtDyn.up / G.v;
