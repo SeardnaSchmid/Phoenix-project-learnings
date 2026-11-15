@@ -65,6 +65,8 @@ function showTitle() {
 function startLevel(i) {
   const L = LEVELS[i];
   UI.levelIdx = i;
+  closeModal();
+  $('#callout').classList.add('hidden');
   UI.G = newGame(L);
   UI.G.speed = 1;
   // the untouched twin: same seed, no toolbox decisions
