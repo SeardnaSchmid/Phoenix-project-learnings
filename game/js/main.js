@@ -36,7 +36,7 @@ function stationAt(mx, my) {
   for (const s of G.st) {
     const [x0, y0, x1, y1] = platformRect(s);
     const inPlat = p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1;
-    const inQueue = s.i > 0 && p.y >= 4.1 && p.y <= 5 && p.x >= s.x - 2.6 && p.x <= s.x + .3;
+    const inQueue = !G.L.pipeline && s.i > 0 && p.y >= 4.1 && p.y <= 5 && p.x >= s.x - 2.6 && p.x <= s.x + .3;
     if (inPlat || inQueue) return s.i;
   }
   return null;
@@ -140,9 +140,11 @@ $('#btnReset').onclick = () => {
 };
 $('#btnBrief').onclick = showBrief;
 $('#btnEnd').onclick = confirmEnd;
+$('#btnPipe').onclick = showPipelineLoader;
 
 // ---------- boot ----------
 applyTheme(UI.save.theme || 'dark');
+applySavedPipeline();
 UI.demo = newGame(DEMO_LEVEL, { demo: true });
 showTitle();
 requestAnimationFrame(frame);

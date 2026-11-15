@@ -594,3 +594,7 @@ body.tour-hud .kpi, body.tour-hud #patBlock, body.tour-hud .left-col > .panel, b
 .dk-n { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #10131f; flex: none; }
 .dk-t { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
 .dec-key .t-lines { flex-basis: 100%; margin-left: 28px; }
+body.sandbox #patBlock { visibility: hidden; }
+.pipe-text { width: 100%; height: 340px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; line-height: 1.45;
+  background: var(--raise); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; resize: vertical; }
+.modal-card code { font-size: 12px; background: var(--raise-2); padding: 1px 5px; border-radius: 5px; }

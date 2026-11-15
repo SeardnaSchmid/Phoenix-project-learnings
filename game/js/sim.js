@@ -71,6 +71,7 @@ function makeStations(L) {
 }
 
 function newGame(L, opts = {}) {
+  if (L.pipeline) return newPipelineGame(L, opts);
   const seed = opts.seed ?? (Math.random() * 4294967296) >>> 0;
   const rng = mulberry32(seed);
   return withRng(rng, () => buildGame(L, opts, seed, rng));
@@ -593,6 +594,7 @@ function finishRunbook(G) {
 // ---------- main update ----------
 function update(G, dt) {
   if (G.ended) return;
+  if (G.L.pipeline) return withRng(G.rng, () => pipelineUpdate(G, dt));
   withRng(G.rng, () => updateInner(G, dt));
 }
 function updateInner(G, dt) {
@@ -783,6 +785,7 @@ function tutorialAnswer(G, type) {
 
 // ---------- KPIs ----------
 function computeKpis(G) {
+  if (G.L.pipeline) return pipelineKpis(G);
   const t = G.t, K = G.k || 1, W = 3 * K, win = Math.min(W, Math.max(t, .5));
   const del = G.stats.delivered.filter(d => !d.shadow);
   const recent = del.slice(-Math.round(10 * K * G.v));
@@ -812,7 +815,7 @@ function patienceHit(G, d, reason) {
 function sampleKpis(G) {
   G.kpi = computeKpis(G);
   // queue history per station: lets the floor show where work is piling up right now
-  G.qHist = G.qHist || [[], [], [], [], []];
+  G.qHist = G.qHist || G.st.map(() => []);
   for (const s of G.st) { const h = G.qHist[s.i]; h.push(s.q.length + s.out.length); if (h.length > 60) h.shift(); }
   const vals = Object.assign({ patience: G.patience }, G.kpi);
   G.seriesT.push(G.t);

@@ -1,7 +1,9 @@
 'use strict';
 // Isometric 2.5D renderer: palettes, primitives and scene drawing.
 
-const TW = 64, TH = 32, TZ = 34, GW = 23, GH = 7;
+const TW = 64, TH = 32, TZ = 34;
+let GW = 23, GH = 7;
+function setGrid(w, h) { GW = w; GH = h; }
 
 const PALETTES = {
   dark: {
@@ -132,6 +134,7 @@ const RUST = (() => {
 
 // ---------- scene ----------
 function drawScene(G, ui) {
+  if (G.L.pipeline) return drawPipeline(G, ui);
   const T = G.t * daySec(G);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cv.width, cv.height);
@@ -145,6 +148,7 @@ function drawScene(G, ui) {
 }
 
 function platformRect(s) {
+  if (s.prect) return s.prect;
   if (s.key === 'gate') return [s.x - 1.1, 3.0, s.x + 1.6, 5.2];
   return [s.x - 1.3, .9, s.x + 1.3, 3.6];
 }

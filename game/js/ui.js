@@ -36,7 +36,7 @@ function applyTheme(t) {
 function toggleTheme() { applyTheme(UI.save.theme === 'light' ? 'dark' : 'light'); }
 
 // ---------- title ----------
-function unlocked(i) { return i === 0 || UI.save.unlockAll || ((UI.save.stars || {})[i - 1] || 0) >= 1; }
+function unlocked(i) { return i === 0 || LEVELS[i].sandbox || UI.save.unlockAll || ((UI.save.stars || {})[i - 1] || 0) >= 1; }
 function renderTitle() {
   const grid = $('#levelGrid');
   grid.innerHTML = '';
@@ -56,6 +56,8 @@ function showTitle() {
   $('#hud').classList.add('hidden');
   $('#title').classList.remove('hidden');
   document.body.classList.add('title-mode');
+  document.body.classList.remove('sandbox');
+  setGrid(23, 7);
   endTourUi();
   $('#callout').classList.add('hidden');
   renderTitle();
@@ -68,9 +70,11 @@ function startLevel(i) {
   closeModal();
   $('#callout').classList.add('hidden');
   UI.G = newGame(L);
+  if (UI.G.pipe) setGrid(UI.G.pipe.GW, UI.G.pipe.GH); else setGrid(23, 7);
+  document.body.classList.toggle('sandbox', !!L.sandbox);
   UI.G.speed = 1;
   // the untouched twin: same seed, no toolbox decisions
-  UI.ghost = L.tutorial || L.tour ? null : newGame(L, { seed: UI.G.seed, ghost: true });
+  UI.ghost = L.tutorial || L.tour || L.pipeline ? null : newGame(L, { seed: UI.G.seed, ghost: true });
   UI.screen = 'game'; UI.mentorShown = 0; UI.feedAt = 0; UI.hintI = 0; UI.selected = null; UI.targeting = null;
   $('#title').classList.add('hidden');
   $('#hud').classList.remove('hidden');
@@ -165,7 +169,7 @@ function buildHud() {
     attachMarkerHover(el.querySelector('canvas'));
   }
   // goals
-  $('#goals').innerHTML = L.goals.map((g, i) => `<li id="goal-${i}"${g.tip ? ` data-tip="${esc(g.tip)}"` : ''}><span class="ck"></span><span class="gl">${esc(g.label)}</span><span class="gv"></span></li>`).join('');
+  $('#goals').innerHTML = L.sandbox ? '<li class="locked"><span class="gl">Sandbox: no targets. Watch the flow and click stations to inspect them.</span></li>' : L.goals.map((g, i) => `<li id="goal-${i}"${g.tip ? ` data-tip="${esc(g.tip)}"` : ''}><span class="ck"></span><span class="gl">${esc(g.label)}</span><span class="gv"></span></li>`).join('');
   $('#steps').innerHTML = L.steps
     ? `<h3 style="margin-top:4px">Five focusing steps</h3><div class="steps">${['Identify', 'Exploit', 'Subordinate', 'Elevate', 'Repeat'].map(s => `<div class="step" data-step="${s.toLowerCase()}">${s}</div>`).join('')}</div>`
     : '';
@@ -212,7 +216,7 @@ function buildTools() {
   const G = UI.G, box = $('#tools');
   box.innerHTML = '';
   if (!G.L.tools.length) {
-    box.innerHTML = '<div class="t-desc" style="color:var(--muted);font-size:13px;line-height:1.5">No tools today. Just learn to read the floor: work types, queues, the KPIs at the bottom.</div>';
+    box.innerHTML = `<div class="t-desc" style="color:var(--muted);font-size:13px;line-height:1.5">${G.L.sandbox ? 'No tools in the sandbox yet. Change the pipeline document (title screen → Load your pipeline) and compare.' : 'No tools today. Just learn to read the floor: work types, queues, the KPIs at the bottom.'}</div>`;
     return;
   }
   for (const key of G.L.tools.filter(k => toolVisible(G, k))) {
@@ -386,8 +390,10 @@ function updateHud() {
   if (!G) return;
   const L = G.L, k = G.kpi;
   const tg = targetProgress(G);
-  $('#tbDay').textContent = L.tour || L.tutorial ? clockText(G, G.t) : `${tg.met} / ${tg.n}`;
-  $('#tbDayBar').style.width = (L.tour || L.tutorial ? Math.min(100, G.t / L.days * 100) : tg.met / Math.max(1, tg.n) * 100) + '%';
+  const timed = L.tour || L.tutorial || L.sandbox;
+  $('#tbDay').textContent = timed ? clockText(G, G.t) : `${tg.met} / ${tg.n}`;
+  $('.tb-meter .lbl span').textContent = timed ? 'Time' : 'Targets';
+  $('#tbDayBar').style.width = (timed ? Math.min(100, G.t / L.days * 100) : tg.met / Math.max(1, tg.n) * 100) + '%';
   $('#btnEnd').classList.toggle('hidden', !!(L.tour || L.tutorial));
   $('#btnEnd').classList.toggle('ready', !!G.winOffered);
   updatePatience(G);
@@ -463,7 +469,7 @@ function targetProgress(G) {
 }
 function checkWin(G) {
   const L = G.L;
-  if (L.tour || L.tutorial || G.ended || G.winOffered || UI.modal) return;
+  if (L.tour || L.tutorial || !L.goals.length || G.ended || G.winOffered || UI.modal) return;
   const all = G.t > 1 && targetProgress(G).met === L.goals.length;
   if (!all) { G.winSince = null; return; }
   if (G.winSince == null) G.winSince = G.t;
@@ -674,7 +680,10 @@ function updateStationPanel(rebuild) {
   const fog = stationFog(G, s.i) > .5 && s.i > 0, peek = peeking(G, s.i);
   const nW = s.workers.length;
   let html = `<div class="sp-head"><div><b>${esc(s.name)}</b><small>${s.i === 0 ? 'intake' : nW + (nW > 1 ? ' workers' : ' worker')}</small></div><button class="x-btn" data-close>×</button></div>`;
-  if (s.i === 0) {
+  if (s.kind === 'intake') {
+    html += `<div class="sp-row"><span>Arrivals per day</span><b>${s.def.rate}</b></div>`;
+    html += `<div class="sp-row"><span>Waiting to be released</span><b>${s.q.length}</b></div>`;
+  } else if (s.i === 0 && !G.L.pipeline) {
     html += `<div class="sp-row"><span>Waiting to be released</span><b>${G.backlog.length}</b></div>`;
     html += `<div class="sp-row"><span>Release rule</span><b>${G.flags.utilDrive ? 'push everything' : G.flags.freeze ? 'projects frozen' : G.flags.rope ? 'paced to constraint' : G.st[1].limit != null ? 'pull (Dev limit)' : 'push on arrival'}</b></div>`;
     html += `<div class="sp-row"><span>Hallway requests</span><b>${G.L.shadowRate ? (G.owned.singleIntake ? 'blocked' : 'bypassing intake') : '–'}</b></div>`;
@@ -697,6 +706,7 @@ function updateStationPanel(rebuild) {
     const mult = u >= .99 ? '∞' : (u / (1 - u)).toFixed(1);
     html += `<div class="sp-row"><span>Utilization (busiest worker)</span><b>${Math.round(u * 100)}%</b></div>`;
     html += `<div class="sp-row"><span>Waiting · working · done-waiting</span><b>${s.q.length} · ${inProg} · ${s.out.length}</b></div>`;
+    if (s.kind === 'qa' && s.rack) html += `<div class="sp-row"><span>Epic parts waiting for the rest</span><b>${s.rack.length}</b></div>`;
     if (G.L.showHero && s.heroProb > 0) html += `<div class="sp-row"><span>Items needing the hero</span><b>${Math.round(s.heroProb * 100)}%</b></div>`;
     if (s.key === 'ops' && G.batch > 1) html += `<div class="sp-row"><span>Deploy batch size</span><b>${G.batch}</b></div>`;
     html += `<div class="sp-wait"><div class="f">Expected wait = busy ÷ idle</div><div class="big">≈ ${mult}× work time</div><canvas></canvas></div>`;
@@ -720,7 +730,7 @@ function updateStationPanel(rebuild) {
   const cvs = el.querySelector('canvas');
   if (cvs) waitCurve(cvs, s.u);
   // position next to the station
-  const [sx, sy] = toScreen(s.x, 1.2, 2.2);
+  const [sx, sy] = toScreen(s.x, s.y != null && G.L.pipeline ? s.y : 1.2, 2.2);
   const r = el.getBoundingClientRect();
   let left = sx + 70, top = sy - r.height / 2;
   if (left + r.width > innerWidth - 324) left = sx - r.width - 70;
@@ -779,8 +789,9 @@ function renderBoard() {
   if (G.crates.some(c => c.shadow && c.loc >= 1 && c.loc <= 4)) G.seen.shadow = true;
   const chip = c => typeIcon(c.type, 'chipc' + (c.shadow ? ' hidden-work' : ''));
   const chips = list => list.slice(0, 40).map(chip).join('') + (list.length > 40 ? `<span class="more">+${list.length - 40}</span>` : '');
-  const cols = [{ name: 'Backlog', list: G.backlog, s: null }];
-  for (let i = 1; i <= 4; i++) cols.push({ name: G.st[i].name, list: G.crates.filter(c => c.loc === i), s: G.st[i] });
+  const cols = [{ name: 'Backlog', list: G.L.pipeline ? G.crates.filter(c => c.state === 'intake') : G.backlog, s: null }];
+  const boardSt = G.L.pipeline ? G.st.filter(s => s.kind !== 'intake') : G.st.slice(1, 5);
+  for (const s of boardSt) cols.push({ name: s.name, list: G.crates.filter(c => c.loc === s.i && c.state !== 'move'), s });
   const done = G.stats.delivered.filter(d => d.t > G.t - G.k);
   let html = '<div class="board-cols">';
   for (const col of cols) {
@@ -902,7 +913,7 @@ function showDebrief() {
     ${ok ? `<div class="big-stars">${starHtml(stars)} ${targetsChip(G, res)}</div>` : `<p>Too many late deliveries and open incidents after ${clockText(G, G.t)}. Try again: the list below shows what to change.</p>`}
     ${H ? `<div class="section-h">What moved your numbers</div>${debriefCompareHtml(G, H)}` : debriefScoreHtml(G, H, res)}
     ${!ok && missed ? `<div class="try-next"><div class="eyebrow">Try next time</div>${missed}</div>` : ''}
-    ${ok ? `<div class="reflect-card">
+    ${ok && L.reflection ? `<div class="reflect-card">
       <div class="eyebrow">Your turn · reflect</div>
       <h3>${esc(L.reflection.q)}</h3>
       <div id="refl">${L.reflection.options.map((o, i) => `<button class="opt" data-r="${i}"><b style="font-weight:600">${esc(o)}</b></button>`).join('')}</div>
@@ -923,6 +934,7 @@ function showDebrief() {
   card.querySelector('[data-menu]').onclick = showTitle;
   card.querySelector('[data-retry]').onclick = () => startLevel(L.id);
   const next = card.querySelector('[data-next]'), deck = card.querySelector('[data-deck]');
+  if (!L.reflection) { if (next) next.disabled = false; if (deck) deck.disabled = false; }
   if (next) next.onclick = () => startLevel(L.id + 1);
   if (deck) deck.onclick = showDeck;
   card.querySelectorAll('[data-r]').forEach(b => b.onclick = () => {
