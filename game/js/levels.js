@@ -294,7 +294,7 @@ const LEVELS = [
     id: 0, title: 'The Floor', concept: 'How work flows',
     hook: 'Before your first shift, take a walk across the factory floor with your mentor. Every station, every crate and every number on screen tells you something about how work flows from an idea to a happy customer.',
     learn: ['What each workstation does', 'How a piece of work travels through the pipeline', 'How to read the screen: rings, piles, KPIs, patience'],
-    days: 40, sla: 6, rate: 1.3, mix: { biz: .45, int: .2, chg: .35 }, preload: { dev: 2, test: 3, ops: 1 },
+    days: 40, vScale: 3, sla: 6, rate: 1.3, mix: { biz: .45, int: .2, chg: .35 }, preload: { dev: 2, test: 3, ops: 1 },
     debt: 0, fq: .6, patience: 80, tour: true,
     kpis: ['lead', 'thr', 'wip', 'unp'],
     tools: [],
@@ -418,7 +418,7 @@ const LEVELS = [
     id: 3, title: 'The Hero', concept: 'Theory of Constraints',
     hook: 'One engineer knows how everything works. Everyone needs them, all the time: Dev, Test, the Change Gate. Deliveries are late, and the hero is exhausted.',
     learn: ['Every system has one constraint that sets its pace', 'The Five Focusing Steps', 'An hour lost at the constraint is an hour lost for everyone'],
-    days: 12, sla: 4, rate: 1.9, mix: { biz: .45, int: .2, chg: .35 },
+    days: 12, vScale: 4, sla: 4, rate: 1.9, mix: { biz: .45, int: .2, chg: .35 },
     heroProb: { dev: .3, test: .3, gate: .25, ops: 1 }, showHero: true, constraint: 'ops', ropeN: 8,
     preload: { ops: 5, dev: 3, test: 2 },
     debt: 15, fires: true, fireBase: .15, fireDebt: .015, fq: .4, cs: .03, budget: 9, patience: 60, latePenalty: .5, wipDrain: { over: 11, rate: .4 },
@@ -445,13 +445,13 @@ const LEVELS = [
       dev: G => heroWaitInfo(G, 1), test: G => heroWaitInfo(G, 2), gate: G => heroWaitInfo(G, 3),
       ops: G => {
         const s = G.st[4], away = G.hero.state !== 'home';
-        return { seen: s.q.length >= 5 ? 'opsPile' : null,
+        return { seen: s.q.length >= 5 * G.v ? 'opsPile' : null,
           html: `<b>${s.q.length} items</b> wait to be deployed. Only the hero can do most deploys, and right now the hero is <b>${away ? 'away at another station' : 'here'}</b>. Pulled away ${G.stats.interruptions}× so far.` };
       },
     },
     goals: [
       { label: 'Identify the constraint', tip: 'Watch where work piles up, then use "Mark the constraint"', test: G => G.steps.identify, show: G => G.steps.identify ? 'yes' : 'no' },
-      { label: 'Throughput ≥ 1.7 / day', reveal: G => G.steps.identify, kpi: 'thr', op: '>=', val: 1.7 },
+      { label: 'Throughput ≥ 6.8 / day', reveal: G => G.steps.identify, kpi: 'thr', op: '>=', val: 6.8 },
       { label: 'Lead time ≤ 4 days', reveal: G => G.steps.identify, kpi: 'lead', op: '<=', val: 4 },
     ],
     events: [{
@@ -465,7 +465,7 @@ const LEVELS = [
     mentor: [
       { id: 'boss', who: 'boss', when: G => G.t > .9, text: 'We pay that one engineer a fortune and still nothing ships. Just hire more people. Problem solved.' },
       { id: 'a', when: G => G.t > 1.2 && !G.steps.identify, pulse: [4], text: 'Crates with a ★ can only be done by the hero. Before you change anything: where does work pile up, and who is always running around? Click the stations, then mark the constraint.' },
-      { id: 'b', when: G => G.st[4].q.length > 10 && !G.steps.identify, text: 'Ops has a growing pile. Is Ops slow, or is someone missing from Ops?' },
+      { id: 'b', when: G => G.st[4].q.length > 10 * G.v && !G.steps.identify, text: 'Ops has a growing pile. Is Ops slow, or is someone missing from Ops?' },
       { id: 'e', when: G => G.steps.subordinate && !G.steps.elevate, text: 'Steps 1–3 done. Now the real fix: how can the factory need the hero less?' },
     ],
     generic: ['heroPulled', 'firstIncident'],
@@ -487,7 +487,7 @@ const LEVELS = [
     id: 4, title: 'Too Much Stuff', concept: 'Limit work in progress',
     hook: 'The hero is protected and the runbooks are written. But the floor is drowning in half-finished work. Everyone is 100% busy, and everything is late.',
     learn: ['WIP limits: stop starting, start finishing', 'Wait time explodes near 100% utilization', 'Multitasking makes everyone slower'],
-    days: 12, sla: 4, rate: 2.0, mix: { biz: .5, int: .2, chg: .3 }, constraint: 'test',
+    days: 12, vScale: 4, sla: 4, rate: 2.0, mix: { biz: .5, int: .2, chg: .3 }, constraint: 'test',
     preload: { dev: 4, test: 8, gate: 1, ops: 1 },
     debt: 10, fires: true, fireBase: .15, fireDebt: .015, fq: .5, cs: .1, budget: 7, patience: 55, latePenalty: .5, wipDrain: { over: 11, rate: .4 },
     setup: G => { G.owned.kanban = true; G.flags.protectHero = true; },
@@ -505,16 +505,16 @@ const LEVELS = [
     },
     goals: [
       { label: 'Find out why everything is late', tip: 'Click the busiest station and read its wait-time curve', test: G => !!G.disc.wipLimits, show: G => G.disc.wipLimits ? 'yes' : 'no' },
-      { label: 'Work in progress ≤ 12', reveal: G => !!G.disc.wipLimits, kpi: 'wip', op: '<=', val: 12 },
+      { label: 'Work in progress ≤ 48', reveal: G => !!G.disc.wipLimits, kpi: 'wip', op: '<=', val: 48 },
       { label: 'Lead time ≤ 3.5 days', reveal: G => !!G.disc.wipLimits, kpi: 'lead', op: '<=', val: 3.5 },
-      { label: 'Throughput ≥ 2.0 / day', reveal: G => !!G.disc.wipLimits, kpi: 'thr', op: '>=', val: 2.0 },
+      { label: 'Throughput ≥ 8 / day', reveal: G => !!G.disc.wipLimits, kpi: 'thr', op: '>=', val: 8 },
     ],
     events: [{
       day: 3, title: 'Show some progress',
       body: 'Sales: "Customers want to see progress. Start all six of their projects now so we can say they\'re in progress."',
       options: [
         { label: 'Start all six now', desc: 'Everything "in progress" looks good on a status report.', trap: '"In progress" isn\'t progress. Starting six more items raised WIP and pushed every delivery further out. Only finished work counts.', apply: G => { releaseBurst(G, 6, 'biz'); patienceHit(G, 4, 'your decision'); }, expect: { thr: 1 } },
-        { label: 'Pull them as capacity frees up', expect: { lead: -1 }, why: 'Pulling work only when there is room keeps WIP low and lead times short. Customers see real progress: finished work.', desc: 'They start when there\'s room.', apply: G => { for (let k = 0; k < 6; k++) addToBacklog(G, newCrate(G, 'biz')); patienceHit(G, -3, 'your decision'); } },
+        { label: 'Pull them as capacity frees up', expect: { lead: -1 }, why: 'Pulling work only when there is room keeps WIP low and lead times short. Customers see real progress: finished work.', desc: 'They start when there\'s room.', apply: G => { for (let k = 0; k < 6 * G.v; k++) addToBacklog(G, newCrate(G, 'biz')); patienceHit(G, -3, 'your decision'); } },
       ],
     }],
     mentor: [
@@ -542,9 +542,9 @@ const LEVELS = [
     id: 5, title: 'Fires', concept: 'Unplanned work & technical debt',
     hook: 'Years of shortcuts are coming due. Systems break daily, customers notice before you do, and the team spends half its time firefighting.',
     learn: ['Technical debt turns into unplanned work', 'Reserve ~20% capacity for internal improvements', 'Fast feedback shrinks every problem'],
-    days: 12, sla: 4, rate: 1.9, mix: { biz: .55, int: .1, chg: .35 },
+    days: 12, vScale: 4, sla: 4, rate: 1.9, mix: { biz: .55, int: .1, chg: .35 },
     debtSlider: true, debtShare: .05, debt: 55, debtDyn: { up: 1.6, down: 11 },
-    fires: true, fireBase: .05, fireDebt: .015, fq: 0, cs: .04, budget: 8, patience: 40, latePenalty: .5, incDrain: 7,
+    fires: true, fireBase: .05, fireDebt: .015, fq: 0, cs: .04, budget: 8, patience: 25, latePenalty: .5, incDrain: 9,
     setup: G => { G.owned.kanban = true; G.flags.protectHero = true; },
     kpis: ['unp', 'debt', 'mttr', 'thr'],
     tools: ['debtSlider', 'monitoring', 'firefighters'],
@@ -601,7 +601,7 @@ const LEVELS = [
     id: 6, title: 'The Gatekeeper', concept: 'Change & security',
     hook: 'After an audit scare, the security officer insists on reviewing everything at the Change Gate. Every item now waits in line for a stamp, and changes still fail.',
     learn: ['Risk-based change management', 'Build security into daily work', 'Protect what actually matters'],
-    days: 12, sla: 4, rate: 2.2, mix: { biz: .35, int: .15, chg: .5 }, constraint: 'gate',
+    days: 12, vScale: 4, sla: 4, rate: 2.2, mix: { biz: .35, int: .15, chg: .5 }, constraint: 'gate',
     risky: .45, riskyFail: .35, stdFail: .05, flags: { auditAll: true }, auditTime: .45,
     preload: { gate: 10, dev: 3, test: 2 },
     debt: 15, fires: true, fireBase: .1, fireDebt: .015, fq: .5, cs: .03, budget: 8, patience: 60, latePenalty: .5, incDrain: 3.5, wipDrain: { over: 12, rate: .5 },
@@ -634,7 +634,7 @@ const LEVELS = [
       { label: 'Find out what the gate spends its time on', tip: 'Click the Change Gate', test: G => !!G.disc.preapprove, show: G => G.disc.preapprove ? 'yes' : 'no' },
       { label: 'Change fail rate ≤ 10%', reveal: G => !!G.disc.preapprove, kpi: 'cfr', op: '<=', val: 10 },
       { label: 'Lead time ≤ 4 days', reveal: G => !!G.disc.preapprove, kpi: 'lead', op: '<=', val: 4 },
-      { label: 'Throughput ≥ 1.9 / day', reveal: G => !!G.disc.preapprove, kpi: 'thr', op: '>=', val: 1.9 },
+      { label: 'Throughput ≥ 7.6 / day', reveal: G => !!G.disc.preapprove, kpi: 'thr', op: '>=', val: 7.6 },
     ],
     events: [{
       day: 5, title: 'After the outage',
@@ -646,7 +646,7 @@ const LEVELS = [
     }],
     mentor: [
       { id: 'sec', who: 'security', when: G => G.t > .7, text: 'Every change gets the full review. No exceptions. If production breaks, it will not be because we skipped a signature.' },
-      { id: 'sec2', who: 'security', when: G => G.t > 4 && G.st[3].q.length > 8, text: 'The approval queue is long because we are thorough. If you want it faster, give me more approvers.' },
+      { id: 'sec2', who: 'security', when: G => G.t > 4 && G.st[3].q.length > 8 * G.v, text: 'The approval queue is long because we are thorough. If you want it faster, give me more approvers.' },
       { id: 'a', when: G => G.t > 1.4 && !G.disc.preapprove, pulse: [3], text: 'The pile at the Change Gate keeps growing, and changes still fail. Click the gate: what is all that reviewing actually spent on?' },
       { id: 'b', when: G => G.stats.deploys.some(d => d.failed) && !G.owned.preapprove, text: 'A change failed even though it was approved. Did the approval actually look at the risk?' },
       { id: 'c', when: G => G.owned.preapprove && G.owned.shiftLeft && G.owned.cutScope, text: 'Security is now part of the flow instead of a wall at the end. That\'s how it should feel.' },
@@ -670,9 +670,9 @@ const LEVELS = [
     id: 7, title: 'Flow', concept: 'The Three Ways',
     hook: 'Deploys go out in big, scary releases that cost the hero a whole day and often break things. The business wants to ship every day.',
     learn: ['First Way: flow, with small batches', 'Second Way: fast feedback', 'Third Way: learn through practice'],
-    days: 12, sla: 3.5, rate: 2.5, mix: { biz: .45, int: .2, chg: .35 },
-    risky: .25, riskyFail: .15, batch: 8, opsSetup: 1.0, heroProb: { ops: 1 },
-    debt: 25, fires: true, fireBase: .1, fireDebt: .015, fq: .5, cs: .03, budget: 12, patience: 50, latePenalty: .5, wipDrain: { over: 7, rate: .5 },
+    days: 12, vScale: 4, sla: 3.5, rate: 2.5, mix: { biz: .45, int: .2, chg: .35 },
+    risky: .25, riskyFail: .15, batch: 8, opsSetup: 4, heroProb: { ops: 1 },
+    debt: 25, fires: true, fireBase: .1, fireDebt: .015, fq: .5, cs: .03, budget: 12, patience: 35, latePenalty: .5, wipDrain: { over: 7, rate: .5 },
     setup: G => { G.owned.kanban = true; G.flags.protectHero = true; },
     kpis: ['deploys', 'mttr', 'cfr', 'lead'],
     tools: ['deployAuto', 'batchSlider', 'autoTests', 'chaosDrill', 'skipTests'],
@@ -696,12 +696,12 @@ const LEVELS = [
         if (last && last.failed && !G.owned.autoTests) return { seen: 'failCause',
           html: `The last deploy shipped <b>${last.n} changes at once</b> and broke. Which one did it? Nobody knows. Tests caught only a fraction of the defects.` };
         if (G.owned.deployAuto) return { html: `Deploys are automated: minutes instead of a day. Batch size: <b>${G.batch}</b>.` };
-        return { seen: 'opsDeploy', html: `Each deploy costs the hero about <b>a whole day</b> of setup, plus a bit per item. So work waits for a batch of <b>${G.batch}</b>.` };
+        return { seen: 'opsDeploy', html: `Each deploy costs the hero <b>hours of manual setup</b>, plus a bit per item. So work waits until a batch of <b>${G.batch}</b> is together.` };
       },
     },
     goals: [
       { label: 'Find out why deploys are so rare', tip: 'Click Ops / Deploy', test: G => !!G.disc.deployAuto, show: G => G.disc.deployAuto ? 'yes' : 'no' },
-      { label: 'Deploy frequency ≥ 2 / day', reveal: G => !!G.disc.deployAuto, kpi: 'deploys', op: '>=', val: 2 },
+      { label: 'Deploy frequency ≥ 8 / day', reveal: G => !!G.disc.deployAuto, kpi: 'deploys', op: '>=', val: 8 },
       { label: 'Lead time ≤ 3.5 days', reveal: G => !!G.disc.deployAuto, kpi: 'lead', op: '<=', val: 3.5 },
       { label: 'Change fail rate ≤ 10%', reveal: G => !!G.disc.autoTests, kpi: 'cfr', op: '<=', val: 10 },
       { label: 'Time to restore ≤ 0.6 days', reveal: G => !!G.disc.autoTests, kpi: 'mttr', op: '<=', val: .6 },
@@ -718,7 +718,7 @@ const LEVELS = [
       { id: 'boss', who: 'boss', when: G => G.t > 1, text: 'The competition ships daily. Testing is slowing us down. Can we just skip it for this release?' },
       { id: 'a', when: G => G.t > 1.2 && !G.disc.deployAuto, pulse: [4], text: 'The business wants to ship every day, and we ship about once a week. Click Ops / Deploy: what does a single deploy cost?' },
       { id: 'b', when: G => G.stats.deploys.length === 1, text: 'One deploy, many items, one long day. If it breaks, which item caused it?' },
-      { id: 'c', when: G => computeKpis(G).deploys >= 2, text: 'Ship small, ship often. Each deploy is boring now, and that\'s the goal.' },
+      { id: 'c', when: G => computeKpis(G).deploys >= 2 * G.v, text: 'Ship small, ship often. Each deploy is boring now, and that\'s the goal.' },
     ],
     generic: ['firstFail', 'firstIncident'],
     hints: ['Automate deploys first, otherwise every deploy costs a day of the hero.', 'Smaller batches: less risk per deploy and faster feedback.', 'Chaos drills make the team faster at real incidents.'],
@@ -769,7 +769,7 @@ const TOUR = [
 
 // Ambient factory for the title screen.
 const DEMO_LEVEL = {
-  id: -1, days: 1e9, rate: 2.0, mix: { biz: .45, int: .2, chg: .35 }, preload: { dev: 3, test: 5, ops: 3 },
+  id: -1, days: 1e9, vScale: 3, rate: 2.0, mix: { biz: .45, int: .2, chg: .35 }, preload: { dev: 3, test: 5, ops: 3 },
   heroProb: { dev: .15, test: .15, ops: .6 }, debt: 30, fires: true, fireBase: .15, fireDebt: .01, fq: .5, cs: .03,
   backlogTol: 1e9,
 };
