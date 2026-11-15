@@ -563,13 +563,32 @@ function postHtml(m, i) {
     <div class="pb"><div class="ph"><b>${esc(v.name)}</b><span class="pt">day ${Math.max(0, m.t).toFixed(1)}</span></div>
     <div class="role"><span class="tag">${v.tag}</span>${esc(v.role)}</div><p>${esc(m.text)}</p></div></div>`;
 }
+// Dim the floor for a moment and put a spotlight on the speaker.
+let spotTimer = 0;
+function spotlight(el, who) {
+  const fx = $('#focusFx'), r = el.getBoundingClientRect();
+  if (UI.modal || !r.width) return;
+  fx.style.setProperty('--fx', r.left + r.width / 2 + 'px');
+  fx.style.setProperty('--fy', r.top + Math.min(r.height, 220) / 2 + 'px');
+  fx.style.setProperty('--fr', Math.max(r.width, 200) * .75 + 'px');
+  fx.dataset.who = who;
+  fx.classList.remove('on'); void fx.offsetWidth; fx.classList.add('on');
+  clearTimeout(spotTimer);
+  spotTimer = setTimeout(() => fx.classList.remove('on'), who === 'mentor' ? 1600 : 2400);
+}
 function renderFeed(G) {
   const f = $('#feed');
   f.innerHTML = G.mentorQ.slice(-3).reverse().map(postHtml).join('');
-  if (f.firstElementChild) f.firstElementChild.classList.add('pop');
+  if (f.firstElementChild) f.firstElementChild.classList.add('pop', 'flash');
+  // a new voice on the floor pulls focus: glow, flash, and a nudge when someone pushes a quick fix
   const panel = f.closest('.mentor'), who = (G.mentorQ[G.mentorQ.length - 1] || {}).who || 'mentor';
   panel.dataset.who = who;
-  panel.classList.remove('ping'); void panel.offsetWidth; panel.classList.add('ping');
+  panel.classList.remove('ping', 'pressure'); void panel.offsetWidth;
+  panel.classList.add('ping');
+  if (who === 'boss' || who === 'security') panel.classList.add('pressure');
+  clearTimeout(panel._pingT);
+  panel._pingT = setTimeout(() => panel.classList.remove('ping', 'pressure'), 3400);
+  spotlight(panel, who);
 }
 function nextHint() {
   const G = UI.G, h = G.L.hints || [];
